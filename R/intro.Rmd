@@ -1,0 +1,204 @@
+---
+title: "Introduction to R"
+output: html_notebook
+---
+
+# Introduction
+
+R is as set of software designed to facilitate most statistical tasks.
+We will be using R throughout the course to both illustrate examples
+and analyse data.
+
+This type of document is called a R notebook. A R notebook allows us
+to intermingle text and code freely. Currently, all this is simple text,
+and is not treated in any special manner by R.
+
+To execute some R code, we need to insert a R chunk.
+You can either use the menu on the upper right, use the keyboard
+shortcut *Ctrl-Alt-I*, or type the triple backtick character. 
+```{r}
+1 + 2
+```
+
+To execute the code, press *Ctrl-Shift-Enter*. The result is displayed
+below the code chunk. R can evaluate most arithmetic expressions
+(try some out!).
+
+```{r}
+1 + 4
+5 * 6
+```
+
+# Basics of R code
+
+R is a programming language, which allows us to specify complex operations
+that will be executed by the computer. Let's start with some basics
+of computer languages.
+
+## Values
+
+R can represent different types of values natively. The most important are
+numbers, which we can just type in, and strings, which need to be quoted
+
+```{r}
+1 + 5
+'Hello World'
+```
+
+## Variables
+Variables can be thought of named containers or boxes that can store a
+value. For example, let's assign the result of `1 + 4` to variable `a`, and
+display its value
+
+```{r}
+a = 1 + 4
+a
+```
+Just like in maths, a variable can take the place of any value where appropriate.
+For example, let's compute 5 times the value of a
+
+```{r}
+a * 5
+```
+
+It is also possible to update the value of the variable by assigning to it again,
+for example, let's put that value back into `a`
+```{r}
+a = a * 5
+a
+```
+Now `a` is 5 times the value it was.
+
+## Vectors
+
+R is not only able to represent real values, but also vectors (i.e. list of numbers).
+We can create a vector by calling the function `c`.
+
+```{r}
+c(1,2,3,4)
+```
+
+Variables can of course also contain vector values
+```{r}
+b <- c(1,2,3,4)
+```
+
+As vectors are created with `c`, remember not to call your variable `c`!
+R also has a shorthand syntax for creating a vector of numbers from 1 to n,
+```{r}
+1:5
+```
+
+We can access individual components of the vector by using the indexing operator.
+Unlike many other languages, the first component is at index 1.
+```{r}
+b[1]
+```
+
+R is also able to do arithmetic on vector by doing the arithmetic componentwise.
+For example, multiplication between two vectors multiplies the corresponding components
+```{r}
+c(1,3,5) * c(2,1,5)
+```
+
+## Packages
+
+R has a wide community of users, and those have contributed numerous packages that
+are very useful and helpful in doing complex tasks. We can easily install a package
+by going to Tools > Install Package, or simply calling the `install.packages` function.
+Here we install the tidyverse package which we will be using throughout. You can
+find documentation for most the package [here](http://tidyverse.org/).
+
+```{r}
+install.packages('tidyverse')
+```
+
+Once the package is installed, we need to load the package to make use of it.
+Simply do so by calling `library`
+```{r}
+library(tidyverse)
+```
+
+## Data frames
+
+R has a built-in feature to handle dataframes, although we will be using
+a slight improvement from tidyverse named `tibble`. We can create a simple
+dataframe like this
+
+```{r}
+df = tibble(A = c(60, 75, 150), B = c(4, 5, 6), Z = c(30, 30, 30))
+df
+```
+
+We can ask for an element of the table as expected, for example consider
+the element at the first row, second column
+```{r}
+df[1, 2]
+```
+
+We can also asks for a full row or full column at a time by index, but also
+by name (not how RStudio autocomplets for you after the `$` sign).
+```{r}
+df[,1]
+```
+
+```{r}
+df$A
+```
+
+We will usually be loading data from files on disk. R also has built in functions
+to do so. For example, let's read in the MLB player data. Note that in R, the `.`
+character has no significance and can be part of any variable name.
+
+```{r}
+data.mlb = read_csv('../data/socr-mlb.csv')
+data.mlb
+```
+
+The functions `nrow` and `ncol` can be useful to get the number of rows and columns
+of the data
+
+```{r}
+nrow(data.mlb)
+ncol(data.mlb)
+```
+
+## Summary statistics in R
+R has built-in functions to compute common summary statistics. The easiest to use
+is simply called `summary`, and provides some summary statistics when called on a dataframe.
+
+```{r}
+summary(data.mlb)
+```
+
+We can also make use of the functions `mean`, `var`, `sd`, `median`, for example
+```{r}
+mean(data.mlb$Age)
+var(data.mlb$Age)
+sd(data.mlb$Age)
+```
+
+R also has a built-in help feature, if you're not sure of what `sd` does, we can
+check the help
+
+```{r}
+help(sd)
+```
+
+## Subsetting data
+
+We will often be interested in particular subsets of the data. THe `filter` function
+from `dplyr` (part of `tidyverse`) can help us to that. For example, let's get all
+players who are older than 29.
+
+```{r}
+filter(data.mlb, Age > 29)
+```
+
+We can combine logical expressions using the and combinator, &, and the or combinator, |.
+For example, display players who are older than 29 and weigh more than 200 pounds.
+
+```{r}
+filter(data.mlb, Age > 29 & Weight > 200)
+```
+
