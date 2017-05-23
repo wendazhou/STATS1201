@@ -1,0 +1,285 @@
+---
+title: "Statistical visualization"
+output: html_notebook
+---
+
+# Why visualization?
+
+Visualization can be a powerful tool to understand the structure of your
+data. It significantly improves on the expressiveness of descriptive
+summary statistics whilst still being understandable.
+
+# Tools of visualization
+
+Although R has an integrated plotting tools (which I will refer to as
+"base plot"), one of the most compelling argument for using R is the
+existence of the `ggplot2` package. It implements a unified and
+systematic approach to plotting inspired by a *grammar of graphics*.
+
+This document serves as an introduction to both the `ggplot2` package
+and the basic ideas in statistical vizualizations. The notes also
+provide a more theoretical description of the package.
+
+
+```{r}
+# As always, we use the tidyverse. ggplot2 is one part of it
+library(tidyverse)
+# Lubridate is a useful package to work with dates.
+# Install and load it
+install.packages('lubridate')
+library(lubridate)
+```
+
+We will mostly be illustrating our examples using the following
+two datasets. The first is a record of about 1000 MLB players.
+The second is the record of the usage of the Washington D.C.
+bike share program.
+
+Remember to click on Session -> Set Working Directory -> To Source File Location
+before loading the data to make sure your computer finds it!
+
+```{r}
+data.mlb <- read_csv('../data/socr-mlb.csv')
+data.mlb
+```
+```{r}
+data.bike <- read_csv('../data/bike-sharing.csv')
+data.bike
+```
+
+# First steps in ggplot2 - the bar chart
+
+Our first step in ggplot2 is the bar chart, which can be used to visualize
+a single categorical variable.
+
+A ggplot2 plot has three main components:
+- the data
+- the aesthetic map
+- the geometry
+
+We start the plot by calling the `ggplot` function specifying the
+appropriate data that we want to display. We then select the type
+of geometry we would like to use to visualize the data. This determines
+the type of plot we are doing (bar, point, line, etc.). Finally,
+for each graphical dimension of the chart, we specify the corresponding
+variable that it should represent. This is called the aesthetic map.
+In the case of the bar chart, there isn't much to specify. We tell
+ggplot that we would like to see the position on the x-axis.
+
+Note the trailing `+` sign on the first line. R is a whitespace-sensitive
+language, and if we put the + on the second line, R would interpret the
+first line as over, which is undesirable.
+```{r}
+ggplot(data=data.mlb) +
+  geom_bar(aes(x = Position))
+```
+
+We may then make minor modifications such as modifying the label orientation
+by adding on to the plot with the desired function
+```{r}
+ggplot(data=data.mlb) +
+  geom_bar(aes(x = Position)) +
+  theme(axis.text.x = element_text(angle=90, hjust=1)) +
+  xlab('Player position') +
+  ggtitle('Bar chart of count of player by position')
+```
+
+# Visualizing one continuous variable
+
+If we wish to visualize a single continuous variable, the most commonly
+used plot is the histogram. In ggplot2, this can simply be accessed
+using the `geom_histogram` geometry. By default, ggplot2 plots 30 bins,
+but it is often desirable to select the bin width ourselves.
+```{r}
+ggplot(data=data.mlb) + geom_histogram(aes(x=Height))
+```
+
+As the bin width is a property of the geometry, this is where we should specify
+it. The aesthetic mapping (i.e. what goes inside `aes`) denotes the data dependent
+quantities. The bin width instead has nothing to do with the observations and
+is a value we picked.
+```{r}
+ggplot(data=data.mlb) + geom_histogram(aes(x=Height), binwidth=1)
+```
+
+An alternative to the histogram is the kernel density plot. It is similar
+in concept in that it attempts to represent the distribution of the observations,
+but approaches this in a more continuous fashion. It can be seen as attempting
+to estimate the *density* of the variable, a notion we will cover in the
+probability section of the course.
+```{r}
+ggplot(data=data.mlb) + geom_density(aes(x=Height))
+```
+
+# Visualizing two continuous variables
+
+Going beyond the simple case of one variable, statistical visualizations
+can also help us understand the relationship between two variables. The
+visualization we use will be guided by the type of the variables we
+wish to visualize.
+
+## Scatter plots
+
+For two numerical variables, the commonly used scatter plot is simple
+way of visualizing the relationship between the two variables.
+Unlike the previous visualizations that only had one dimension,
+we now need to provide a map for both the `x` and `y` dimension,
+hence the two arguments in `aes`.
+```{r}
+ggplot(data=data.mlb) + geom_point(aes(x = Height, y = Weight))
+```
+
+This allows us to easily see the positive association between the
+height and weight. It also reveals that the height has only been measured
+up to 0.5 inches precision, which would have been difficult to observe
+otherwise.
+
+## Line plots
+Another common visualization for two numerical variables is used when
+the observation are sequential. For example, whilst the baseball players
+where observed in no particular order, the bikeshare program usage was
+recorded in chronological order. In those cases, it may be sensible
+to leverage this information in the visualization, in the form of a line
+plot.
+
+Here, we plot the bike usage data.
+```{r}
+ggplot(data=data.bike) +
+  geom_line(aes(x=datetime, y=count))
+```
+However, it does not appear to be very legible, as the amount of data we have
+plotted is very large. We do notice some seasonal patters with winters having
+fewer users.
+
+We may consider a smaller portion of the data, by filtering out the data to
+only include the first week of June 2011 for example. This combines the same
+plot as above with the filtering technique from the introductory slide.
+```{r}
+ggplot(data=filter(data.bike, '2011-06-01' < datetime & datetime < '2011-06-8')) +
+         geom_line(aes(x=datetime, y=count))
+```
+
+Lines are appropriate when the data is collected in a fairly continuous fashion.
+If there are big gaps between the data points, or if the points are fairly
+discrete, a bar chart may be more appropriate. For example, suppose instead
+we looked at the monthly usage numbers. In this case, the bar chart is
+more appropriate as it does not imply any smoothness in the variation
+and faithfully represents the fact that these are aggregates. This is
+related to the notion that discretized numerical variables are categorical.
+```{r}
+# these lines get the aggregate counts by month
+# we will learn how to do this later in the course
+data.bike.monthly = data.bike %>%
+  group_by(month=floor_date(datetime, unit='month')) %>%
+  summarise(count=sum(count))
+
+ggplot(data = data.bike.monthly) +
+  geom_bar(aes(x=month, y=count), stat='identity')
+```
+
+## Visualization of one categorical and one numerical variable
+
+In this section, we are interested in understanding how one numerical
+variable varies across the groups identified by one categorical variable.
+The most common method is the box plot, which displays a graphic representing
+the summary variables for each group. This allows us to easily visualize
+the differences between the groups in term of location and spread.
+```{r}
+ggplot(data=data.mlb) +
+  geom_boxplot(aes(x=Position, y=Weight))
+```
+
+We may similarly use the same principle to fix the label positions as we had
+for the bar chart.
+```{r}
+ggplot(data=data.mlb) +
+  geom_boxplot(aes(x=Position, y=Weight)) +
+  theme(axis.text.x = element_text(angle=90, hjust=1))
+```
+
+In some cases, we might still be worried that the simple descriptive statistics
+do not reflect for the data for some other reason. In this case, we may choose
+to display a more complex visualization for each group. The violin plot
+summarises each group by using a kernel density estimate we have seen earlier,
+but flipped on the side.
+
+```{r}
+ggplot(data=data.mlb) +
+  geom_violin(aes(x=Position, y=Weight)) +
+  theme(axis.text.x = element_text(angle=90, hjust=1))
+```
+
+## Visualizing more than two variables
+
+In more complex datasets, we may often wish to visualize the relationship
+between more than two variables at a time. However, most of the position
+based visualization techniques are restricted to two dimensions. To visualize
+more than two variables, there are two possibilities: we can either create
+several plots side by side (so-called faceting), or map the third variable
+to a characteristic that is not the x and y position.
+
+### Faceting
+
+The idea of faceting when plotting more than two variables is to consider
+two main variables of interest, and make a plot for each group determined
+by the remaining variables. For example, suppose we wished to look at the
+number of bikeshare users per hour using a box plot.
+```{r}
+# this creates a dataset with the hour in
+data.bike.hour <- data.bike
+data.bike.hour$hour <- factor(hour(with_tz(data.bike.hour$datetime, tz='US/Eastern')))
+data.bike.hour
+```
+```{r}
+ggplot(data=data.bike.hour) + 
+  geom_boxplot(aes(x=hour, y=count))
+```
+
+Now, as we saw previously, there are actually two main patters in bike usage,
+depending on whether the day is a working day or not. A easy way to visualize
+such a pattern could be to produce two plots, with one containing the data for
+working days, and one for non-working days. We can accomplish this in ggplot2
+by using the `facet_wrap` command, and indicating the variable we wish to facet
+on.
+```{r}
+ggplot(data=data.bike.hour) + 
+  geom_boxplot(aes(x=hour, y=count)) +
+  facet_wrap(~ workingday)
+```
+
+### Other dimensions
+
+An alternative to faceting would be to plot the data on the same plot, essentially
+super-imposing the two faceted plots, but instead distinguishing them by some secondary
+characteristic. For example, we could choose different colours for the working days
+and non-working days. In ggplot2, we simply need to indicate an additional aesthetic
+map, which links a visible characteristic (in this case the colour) to a given variable
+in our data (the working day).
+```{r}
+data.bikeh <- data.bike
+data.bikeh$hour <- factor(hour(with_tz(data.bikeh$datetime, tz='US/Eastern')))
+ggplot(data=data.bikeh) + 
+  geom_boxplot(aes(x=hour, y=count, colour=workingday))
+```
+
+However, we should note that as the number of categories increase, characteristics
+such as colour can become more difficult to read and distinguish. For example,
+let's try plotting the weight and height of MLB players, and colour-code the points
+according to the player's position. However, due to the large number of different
+positions, and the not too dissimilar patters, we can only gain little insight
+by doing so.
+```{r}
+ggplot(data=data.mlb) +
+  geom_point(aes(x = Height, y = Weight, colour=Position))
+```
+
+On the other hand, a facet approach allows us to better isolate some groups that
+do seem to appear somewhat different from the other groups. In general, using
+other characteristics such as size, colour or linetype can be useful when the
+number of groups are small (< 5), but when the number of groups becomes large,
+a faceting approach will usually lead to more readable visualizations.
+```{r}
+ggplot(data=data.mlb) +
+  geom_point(aes(x = Height, y = Weight)) +
+  facet_wrap(~Position)
+```

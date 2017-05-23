@@ -81,6 +81,7 @@ c(1,2,3,4)
 Variables can of course also contain vector values
 ```{r}
 b <- c(1,2,3,4)
+b
 ```
 
 As vectors are created with `c`, remember not to call your variable `c`!
@@ -92,7 +93,7 @@ R also has a shorthand syntax for creating a vector of numbers from 1 to n,
 We can access individual components of the vector by using the indexing operator.
 Unlike many other languages, the first component is at index 1.
 ```{r}
-b[1]
+b[4]
 ```
 
 R is also able to do arithmetic on vector by doing the arithmetic componentwise.
@@ -199,6 +200,6 @@ We can combine logical expressions using the and combinator, &, and the or combi
 For example, display players who are older than 29 and weigh more than 200 pounds.
 
 ```{r}
-filter(data.mlb, Age > 29 & Weight > 200)
+filter(data.mlb, Age > 29 | Weight > 200)
 ```
 
