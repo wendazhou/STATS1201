@@ -1,0 +1,81 @@
+---
+title: "Processing data"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+```
+
+
+# Why process data
+
+Although the amount of data collected has vastly increased over the past
+decade, the format in which the data is collected will not always be the
+most adequate for you to do your analysis. Most often, we will need to
+use software tools to transform our data into a format that is adequate
+for us to reason about and make use of existing software tools.
+
+
+# Contingency tables
+When working with categorical data, we will often want to summarise
+the data into contingency tables.
+```{r}
+data.mlb = read_csv('../data/socr-mlb.csv')
+data.mlb
+```
+For example, suppose that we are interested looking at how many players
+of each position does each team have. This is a simple contigency table
+of players and teams. To do so, we simply use the `table` function in R,
+which builds a contingency table from the indicated variables.
+```{r}
+table(data.mlb$Team, data.mlb$Position)
+```
+
+# Grouping and aggregating
+
+Contingency tables are a particular case of a more general idea, which is
+to group the data according to some variables, and compute some aggregate of
+the group. In the case of a contingency table above, the groups correspond
+to a combination of team and position, and the aggregate is simply the count
+of the observations.
+
+Suppose instead, that we wish to obtain some of the statistics similar to what
+we had in the boxplot. For example, let's compute the average weight of a player
+of a given position. We will be using many features of
+[dplyr](http://dplyr.tidyverse.org/).
+```{r}
+data.mlb %>%
+  group_by(Position) %>%
+  summarise(AvgWeight = mean(Weight))
+```
+This code has a couple of new features, let's walk through them together. First,
+notice the `%>%` operator that we are using. This is the 'pipe' operator, and is
+used to feed the data through a series of process. In this case, we process the
+data in two steps. We first indicate that we would like to create groups according
+to the player's position by using the `group_by` function, then for each group, we
+summarise that group by taking the average weight and calling that `AvgWeight`.
+
+We could also compute more summaries for each group, suppose for example that
+we also wanted the average height. Then, we would only need to change the
+`summarise` part, as we still desire the same groups.
+
+```{r}
+data.mlb %>%
+  group_by(Position) %>%
+  summarise(AvgWeight = mean(Weight), AvgHeight = mean(Height))
+```
+
+# Combining grouping and filtering
+
+In addition to grouping on some variables, we will often also be required to filter
+on some other variables. The `%>%` operator makes it easy to combine the filtering
+operations with the grouping and aggregating. Suppose for example that we only wish
+to look at players over the age of 29. We only need to add a filtering step to our
+process.
+```{r}
+data.mlb %>%
+  filter(Age > 29) %>%
+  group_by(Position) %>%
+  summarise(AvgWeight = mean(Weight), AvgHeight = mean(Height))
+```
