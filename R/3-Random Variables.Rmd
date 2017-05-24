@@ -1,0 +1,154 @@
+---
+title: "Introduction to random variables"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+```{r}
+library(ggplot2)
+```
+
+# Why random variables?
+
+In order to talk about statistics and data in a systematic manner, we need to
+be able to describe how data arises in a theoretical fashion. That is, we need
+reasonable mathematical models that can describe the randomness in our data.
+Although we will define such constructions more theoretically, let's first
+start by building some intuition from computer simulations.
+
+# Simulating coin tosses
+
+Let's start by simulating 10 fair coin tosses. We will use R function `rbinom`
+(we will explain the name later when we have more background). The first number
+is the number of tosses we would like, and the last number is the probability
+that the coin lands on head (1). Let's ignore the second number for now.
+```{r}
+rbinom(10, 1, 0.5)
+```
+Note that as the outcome of a coin toss is random, the result will change every
+time we run it.
+
+Suppose we were interested in the number of heads. We can simply obtain that
+by summing the numbers (as head is 1, tails is 0).
+```{r}
+sum(rbinom(10, 1, 0.5))
+```
+Again, as the number of heads depends on the result of the toss that is random,
+it itself is a random quantity, and so changes every time we run it.
+
+Despite the fact that the number of heads is random and changes every time
+we ``run the experiment'', we would still like to be able to make statements
+about the outcome. For example, it is clearly the case that the number of heads
+is an integer between 0 and 10. Intuitively, we would like to say that we will
+obtain 5 heads 'on average'. In addition, it should also be the case that
+the number of heads is much more likely to be around 5 than around 0 or 10.
+Let's try to characterise those notions
+
+# Expectation
+
+Let's repeat the experiment of tossing 10 coins 100 times.
+```{r}
+tosses = rbinom(10 * 100, 1, 0.5) # Simulate 10 * 100 tosses
+tosses = matrix(tosses, ncol = 10) # Arrange them into a grid with 10 columns
+# tosses
+```
+
+Now let's count the number of heads for each row, and let's compute their
+average.
+```{r}
+heads = rowSums(tosses) # take sums across columns
+mean(heads)
+```
+We should see a value that's quite close to 5, although it is still a random
+value (if we ran it again, we'd get another value, but also close to 5).
+
+Let's repeat the experiment 10000 times, and compute the mean
+```{r}
+tosses = rbinom(10 * 10000, 1, 0.5)
+tosses = matrix(tosses, ncol = 10)
+heads = rowSums(tosses)
+mean(heads)
+```
+We should see that now, we are much closer to 5 all of the time.
+This is the manifestation of one of the most fundamental principle
+of statistics and probability, the so called 'law of large numbers'.
+As the number of times for which we repeat the experiment increases,
+we are more and more certain of the average value of the outcome.
+
+Suppose that we were able to repeat that experiment 'infinitely' many
+times, then the average value would be exactly 5 (and no longer random).
+We call this value the expectation.
+
+# Probability mass function
+As we have mentioned previously, summary statistics can hide some
+aspects of the data. Let's try to analyze the repeated experiment
+with a histogram instead.
+
+Let's repeat the experiment 100 times, and plot a histogram of
+the number of heads we obtain.
+```{r}
+tosses = rbinom(10 * 100, 1, 0.5) # Simulate 10 * 100 tosses
+tosses = matrix(tosses, ncol = 10) # Arrange them into a grid with 10 columns
+
+heads = rowSums(tosses) # take sums across columns
+
+ggplot() +
+  geom_histogram(aes(x=heads), binwidth=1) +
+  scale_x_continuous(breaks=c(0, 2, 4, 6, 8, 10), limits = c(0, 10))
+```
+Looks like most of the results had the number of heads around
+5, with 4 and 6 being quite common. However, there seems to be very few (if any) 0 or 10s.
+Now, note that as this histogram depends on our experiment, we may obtain a different one
+every time we run it. Let's try it a couple of times. The shape may change a fair amount
+but the main feature that most of the observations are around 5 should hold true. The
+histogram also seems to change a reasonable amount every time we run the experimens.
+
+As we saw earlier, running more experiments seemed to make the result more stable.
+Let's try this here again.
+```{r}
+tosses = rbinom(10 * 10000, 1, 0.5) # Simulate 10 * 100 tosses
+tosses = matrix(tosses, ncol = 10) # Arrange them into a grid with 10 columns
+
+heads = rowSums(tosses) # take sums across columns
+
+ggplot() +
+  geom_histogram(aes(x=heads), binwidth=1) +
+  scale_x_continuous(breaks=c(0, 2, 4, 6, 8, 10), limits = c(0, 10))
+```
+The histogram now looks quite symmetric, and varies much less between each time
+we run the code.
+
+Now, let's normalize this histogram so that instead of seeing counts, we see
+proportions of time we land in that block. If we had access to infinitely many
+coin tosses, we would always obtain the same histogram, which gives us one number
+for each possible value that our variable can take. We will call this the probability
+that the variable takes the value.
+```{r}
+ggplot() +
+  geom_histogram(aes(x=heads, y=..density..), binwidth=1) +
+  scale_x_continuous(breaks=c(0, 2, 4, 6, 8, 10), limits=c(0, 10))
+```
+```{r}
+table(heads) / length(heads)
+```
+The collection of those values for each possible outcome is called the probability
+mass function, and fully describe the random variable.
+
+
+# Families of distributions
+Suppose now we consider a more general situation, where the coin is potentially
+biased.
+
+```{r}
+p = 0.3 # this is the probability of a head
+tosses = rbinom(10 * 10000, 1, p) # Simulate 10 * 100 tosses
+tosses = matrix(tosses, ncol = 10) # Arrange them into a grid with 10 columns
+
+heads = rowSums(tosses) # take sums across columns
+
+ggplot() +
+  geom_histogram(aes(x=heads, y=..density..), binwidth=1) +
+  scale_x_continuous(breaks=c(0, 2, 4, 6, 8, 10), limits = c(0, 10))
+```
+
