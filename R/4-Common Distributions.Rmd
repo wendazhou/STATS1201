@@ -1,0 +1,107 @@
+---
+title: "Common distributions"
+output: html_notebook
+---
+
+```{r}
+# Remember to run this first
+library(tidyverse)
+```
+
+
+# Common distributions
+
+As R is a statistical language, it provides numerous functions to work
+with common distributions.
+
+For each distribution, R provides for functions, which provide the following
+functions:
+
+- A function r{name of distribution}, to generate random variables according
+to the distribution.
+- A function d{name of distribution}, which computes the p.m.f. or p.d.f.
+of the distribution (density)
+- A function p{name of distribution}, which computes the cumulative distribution
+function (or its complement)
+- A function q{name of distribution}, which computes the quantiles of the
+distribution
+
+
+# Normal distribution
+Let us first generate 100 normal random variables with mean 1 and variance 5
+```{r}
+x = rnorm(mean = 1, sd = sqrt(5), n = 100)
+x
+```
+
+We can plot a histogram of this sample
+```{r}
+ggplot() + geom_histogram(aes(x = x), bins=10)
+```
+
+We can evaluate the density function of the normal distribution
+at points from -5 to 5,
+```{r}
+x = seq(-5, 5, 0.1)
+y = dnorm(x, mean = 0, sd = 1)
+
+ggplot() + geom_line(aes(x = x, y = y))
+```
+
+We may also evaluate the cumulative distribution function, for example, the probability
+that a standard random normal variable is less than -1
+```{r}
+pnorm(-1, mean = 0, sd = 1)
+```
+We can also evaluate the probability that a standard normal variable is greater than 3
+by using the `lower.tail` argument
+```{r}
+pnorm(3, mean = 0, sd = 1, lower.tail=F)
+```
+
+Finally, we can evaluate the quantile function. For example, let us compute the third
+quartile and 97.5th percentile of the standard normal.
+```{r}
+qnorm(0.75, mean = 0, sd = 1)
+qnorm(0.975, mean = 0, sd = 1)
+```
+
+# Poisson distribution
+
+We now consider the Poisson example as an example.
+```{r}
+x = rpois(lambda = 10, n = 100)
+x
+```
+
+Plot the samples we have:
+```{r}
+ggplot() + geom_histogram(aes(x = x), binwidth=1)
+```
+
+Plot the p.m.f. as a bar chart
+```{r}
+x = 0:30
+y = dpois(x, lambda=10)
+
+ggplot() + geom_bar(aes(x = x, y = y), stat='identity')
+```
+
+Compute the probability that the Poisson is less than 5.
+```{r}
+ppois(5, lambda = 10)
+```
+Compute the third quartile of the Poisson with rate 10.
+```{r}
+qpois(0.75, lambda=10)
+```
+
+# Other distributions
+
+We have the following functions:
+
+- Binomial distribution `rbinom` (note that what we have as `n` in class
+is now called size)
+- Uniform distribution `runif`
+- Exponential distribution `rexp`
+

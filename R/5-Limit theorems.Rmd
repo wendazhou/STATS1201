@@ -1,0 +1,63 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Limit theorems
+
+This notebook helps us visualize some of the limiting behaviour of averages.
+
+```{r}
+library(tidyverse)
+```
+
+
+# Law of large numbers
+
+Let us generate random normal variables with mean 1 and variance 1.
+```{r}
+x = rnorm(1000, mean=1, sd=1)
+```
+
+We compute the rolling averages and plot them
+```{r}
+x.avg = cumsum(x) / 1:length(x)
+```
+
+```{r}
+ggplot() + geom_line(aes(y=x.avg, x=1:1000)) + ylim(0, 2)
+```
+
+If the variance is greater, the convergence will be slower
+```{r}
+x = rnorm(1000, mean=1, sd=4)
+x.avg = cumsum(x) / 1:length(x)
+ggplot() + geom_line(aes(y = x.avg, x=1:length(x))) + ylim(0, 2)
+```
+
+For some pathological distributions (which we will not study), the law of large
+numbers does not hold.
+```{r}
+x = rcauchy(1000, location=1)
+x.avg = cumsum(x) / 1:length(x)
+ggplot() + geom_line(aes(y = x.avg, x=1:length(x)))
+```
+
+# Central limit theorem
+
+The central limit theorem characterise the difference of the sample mean
+from the true value.
+```{r}
+x = rpois(n=1000 * 100, lambda = 1)
+x = matrix(x, nrow=100)
+```
+```{r}
+ggplot() + geom_histogram(aes(x=x[,2]), binwidth=1)
+```
+
+We start to see that the difference looks somewhat more symmetric and bell-shaped.
+We only obtain the normal distribution in the limit.
+```{r}
+ggplot() + geom_histogram(aes(x = colMeans(x) - 1))
+```
+
