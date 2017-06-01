@@ -3,6 +3,11 @@ title: "R Notebook"
 output: html_notebook
 ---
 
+```{r}
+library(tidyverse)
+```
+
+
 # Sampling
 
 Sampling is important when attempting to compare statistics across groups.
@@ -120,6 +125,6 @@ class size by averaging the size of the classes students are in. We obtain
 a quantity that is much larger. This is due to the fact that we are more
 likely to pick a student who is in a large class.
 ```{r}
-mean(sample_n(students, 10)$classSize)
+sample_n(students, 10) %>% summarize(MeanClassSize = mean(classSize))
 ```
 
