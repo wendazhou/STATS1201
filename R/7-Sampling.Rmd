@@ -1,0 +1,125 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Sampling
+
+Sampling is important when attempting to compare statistics across groups.
+In this workbook, we take a look at what can happen when we do not do
+an experiment.
+
+# Regression to the mean
+
+The regression to the mean phenomenon creates biases when we select
+on some quantity that is related to what we wish to observe.
+
+For example, suppose that a school wishes to implement an
+after-school remedial program to help students in difficulty.
+
+After a first exam graded out of 10, the school selects the 5 worst performing
+students in a class of 20, and asks them to participate in
+the program. The school then looks at the result of the second test
+scores, also graded out of 10. They seem to be higher, by 1.5 point on average
+- can we quantify how successful the program was?
+
+```{r}
+scores.test1 = rbinom(n = 20, size = 10, p = .5)
+scores.test2 = rbinom(n = 20, size = 10, p = .5)
+```
+
+```{r}
+student.remedial = order(scores.test1)[1:5]
+
+avg.test1 = mean(scores.test1[student.remedial])
+avg.test2 = mean(scores.test2[student.remedial])
+```
+
+```{r}
+avg.test2 - avg.test1
+```
+
+Let us think about simulating the average score discrepancy.
+
+```{r}
+regression.bias = function() {
+  scores.test1 = rbinom(n=20, size=10, p=.5)
+  scores.test2 = rbinom(n=20, size=10, p=.5)
+  
+  student.remedial = order(scores.test1)[1:5]
+
+  avg.test1 = mean(scores.test1[student.remedial])
+  avg.test2 = mean(scores.test2[student.remedial])
+
+  avg.test2 - avg.test1
+}
+```
+
+```{r}
+bias.sim = replicate(1000, regression.bias())
+
+ggplot() + geom_density(aes(x=bias.sim))
+```
+```{r}
+mean(bias.sim)
+```
+
+In this case, the bias is quite large, about 1.8 points (out of 10) on average.
+Indeed, we are in a case where every student has the same skill, and we are
+simply selecting the unlucky ones.
+
+Instead, let us consider an example where the skill of the students vary more.
+
+```{r}
+regression.bias.skill = function(p) {
+  scores.test1 = rbinom(n=20, size=10, p=p)
+  scores.test2 = rbinom(n=20, size=10, p=p)
+  
+  student.remedial = order(scores.test1)[1:5]
+
+  avg.test1 = mean(scores.test1[student.remedial])
+  avg.test2 = mean(scores.test2[student.remedial])
+
+  avg.test2 - avg.test1
+}
+```
+
+```{r}
+skill.variance = 0.01
+p = rbeta(20, 1 / skill.variance, 1 / skill.variance)
+```
+
+```{r}
+bias.skill.sim = replicate(1000, regression.bias.skill(p))
+mean(bias.skill.sim)
+```
+
+# Size bias
+
+Let us consider the following problem: we wish to estimate the average
+class size in a school. Suppose that we were to sample some students at
+random, and average the size of their classes. Is this a good way of
+estimating the average class size?
+
+Suppose that there are 200 students, split in 10 classes, of the sizes given
+in the code below.
+```{r}
+students <- tibble(student = 1:200)
+classes = c(40, 40, 20, 20, 20, 15, 15, 10, 10, 10)
+
+students$classSize = rep(classes, classes)
+```
+
+We compute the true average class size:
+```{r}
+mean(classes)
+```
+
+However, suppose that we sample 10 students at random, and compute the average
+class size by averaging the size of the classes students are in. We obtain
+a quantity that is much larger. This is due to the fact that we are more
+likely to pick a student who is in a large class.
+```{r}
+mean(sample_n(students, 10)$classSize)
+```
+
