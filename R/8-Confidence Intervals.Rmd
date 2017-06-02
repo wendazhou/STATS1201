@@ -1,0 +1,179 @@
+---
+title: "Confidence intervals"
+output: html_notebook
+---
+
+# Confidence intervals
+
+Confidence intervals allows us to interpret the uncertainty in our estimates.
+Let us first give an example on how to make use of the built-in tools to compute
+confidence intervals in simple cases. We will then consider a software-based
+paradigm to compute confidence intervals without a normality assumption or
+knowing the standard error.
+
+```{r}
+library(tidyverse)
+library(broom)
+```
+
+## Confidence intervals for binomial proportion
+
+For a binomial proportion, the built-in R function `binom.test` computes a
+confidence interval. For example, suppose that we observe 50 heads in
+100 toss, then we have
+```{r}
+binom.test(50, 100)
+```
+
+We may transform the result into an easy to use dataframe by using the
+`tidy` method:
+```{r}
+tidy(binom.test(50, 100))
+```
+
+## Coverage property
+Let us check the coverage property. We fix $p = 0.25$, and run the experiment
+1000 times.
+
+```{r}
+p = 0.25
+n = 100
+
+data.experiment = tibble(heads = rbinom(n = 1000, p = 0.25, size=n))
+data.experiment
+```
+
+```{r}
+conf.level = 0.5
+
+data.confint = data.experiment %>%
+  rowwise() %>%
+  do(tidy(binom.test(.$heads, n, conf.level=conf.level)))
+
+data.confint
+```
+```{r}
+data.confint %>%
+  ungroup() %>%
+  summarise(coverage = mean((conf.low < p) & (p < conf.high)),
+            interval.length = mean(conf.high - conf.low))
+```
+
+## Bootstrap
+
+Suppose instead that we were unable to compute the standard error theoretically,
+or that we cannot make a normal approximation for the estimator. Can we compute
+the standard error and the distribution of our estimator from the data?
+
+If we knew the true parameter, we could simulate to understand the true distribution.
+For example, suppose that we run the experiment of sampling from a normal 10 times,
+and replicate that experiment 100 times.
+```{r}
+theta = 3
+
+data.sim = bind_rows(replicate(1000, tibble(x = rnorm(n=20, mean=theta)), simplify=F),
+          .id = "experiment")
+```
+
+We compute the simulated estimator for each experiment.
+```{r}
+theta.sim = data.sim %>% group_by(experiment) %>% summarise(theta.hat = mean(x))
+```
+
+We can visualize the distribution of the error we commit:
+```{r}
+ggplot(data=theta.sim) + geom_histogram(aes(x = theta.hat - theta), binwidth=0.1)
+```
+We can compute the standard error of the estimator. Note that the therotical standard
+error is about 0.22
+```{r}
+sd(theta.sim$theta.hat)
+```
+
+However, in practice we are not able to repeat the experiment such a large amount
+of the time, and we do not know the true parameter. We will thus use a strategy
+to attempt to approximate the simulation using our given data. This strategy
+is called the bootstrap.
+
+The bootstrap creates simulated datasets by resampling from the existing data.
+Suppose we run the normal experiment once.
+
+```{r}
+data.experiment = tibble(x = rnorm(n = 20, mean = theta))
+```
+
+```{r}
+theta.hat = mean(data.experiment$x)
+theta.boot = data.experiment %>%
+  bootstrap(1000) %>%
+  do(tibble(theta.boot = mean(.$x)))
+
+theta.boot
+```
+
+```{r}
+ggplot(data = theta.boot) + geom_histogram(aes(x = theta.boot - theta.hat), binwidth=0.1)
+```
+
+We can use this to compute an estimate of the standard error:
+```{r}
+sd(theta.boot$theta.boot)
+```
+
+
+## Bootstrap confidence intervals
+
+We will leverage our ability to simulate the distribution of our estimator to
+create simulated confidence interval without having access to the standard
+error. The idea of the bootstrap confidence interval relies on the fact
+that $\theta^{boot} - \hat{\theta}$ has the same distribution as
+$\hat{\theta} - \theta$.
+
+Hence we can obtain a confidence interval using the quantiles of the bootstrap
+distribution. That is, we can replace the $z_\alpha$ by the sample quantiles
+of the bootstrap distribution. Thus the following is the 95\% bootstrap confidence
+interval for $\theta$.
+
+```{r}
+theta.hat - quantile(theta.boot$theta.boot - theta.hat, c(0.975, 0.025))
+```
+
+## Bootstrap confidence interval for uniform
+
+Let us illustrate the usage of a bootstrap confidence interval for a uniform
+distribution. Suppose that we get samples from a uniform distribtion from
+0 to $b$, where $b$ is a unknown parameter. We will estimate $b$ by the
+maximum of the samples.
+
+```{r}
+b = 10
+uniform.experiment = tibble(x = runif(n = 50, min = 0, max = b))
+```
+
+We have an estimator given by:
+```{r}
+b.hat = max(uniform.experiment$x)
+b.hat
+```
+
+Let us bootstrap a 95\% confidence interval for $\theta$. Let us bootstrap
+the distribution of our estimator:
+```{r}
+uniform.boot = uniform.experiment %>%
+  bootstrap(100) %>%
+  do(tibble(b.boot = max(.$x)))
+```
+
+Let us visualize the distribution
+```{r}
+ggplot(data=uniform.boot) + geom_histogram(aes(x = b.boot - b.hat), binwidth=0.2)
+```
+Note that the distribution is completely one-sided.
+
+We can compute a 95\% confidence interval
+
+```{r}
+b.hat - quantile(uniform.boot$b.boot - b.hat, c(0.975, 0.025))
+```
+
+
