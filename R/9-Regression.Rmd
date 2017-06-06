@@ -1,0 +1,162 @@
+---
+title: "Regression"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+```
+
+
+# Linear regression
+
+R has numerous tools to solve regression problems. In particular,
+R has built-in methods to work with linear and generalized linear models.
+
+## Ordinary least squares
+
+```{r}
+data.ols = tibble(x = runif(20, 0, 10)) %>% mutate(y = rnorm(length(x), mean = 2 * x))
+
+ggplot(data=data.ols) + geom_point(aes(x = x, y = y))
+```
+
+To compute the linear model, we may use the `lm` function to specify the linear model
+by a formula:
+```{r}
+fit.ols = lm(y ~ x, data = data.ols)
+summary(fit.ols)
+```
+
+We may also add that line to the plot by using `geom_smooth`:
+```{r}
+ggplot(data = data.ols) +
+  geom_point(aes(x = x, y = y)) +
+  geom_smooth(method='lm', aes(x = x, y = y))
+```
+
+However, we can also use `lm` to compute regressions with more than one variable.
+```{r}
+data.ols2 = tibble(x1 = runif(60, 0, 10), x2 = runif(60, 0, 10), x3 = runif(60, 0, 10)) %>%
+  mutate(response = rnorm(length(x1), mean = x1 - 2 * x2 + 0.5 * x3))
+```
+
+```{r}
+lm(response ~ x1 + x2 + x3, data=data.ols2)
+```
+
+## Generalized linear models
+
+We now consider a generalized linear model. First consider a Bernoulli model.
+
+```{r}
+# define the inverse logit function
+inv.logit = function(x) {
+  exp(x) / (1 + exp(x))
+}
+```
+
+We generate the data for a Bernoulli model.
+```{r}
+data.glm = tibble(x = runif(20, 0, 10)) %>%
+  mutate(y = rbinom(length(x), size=1, p=inv.logit(0.1 * x - 1)))
+```
+
+```{r}
+ggplot(data=data.glm) + geom_point(aes(x = x, y = y))
+```
+
+We use the glm function to fit a generalized linear model. We need to precise the
+distribution family of interest to us.
+```{r}
+summary(glm(y ~ x, data=data.glm, family = binomial()))
+```
+
+
+Just as before, we may also consider several variables. Let us do so with
+a poisson model.
+
+```{r}
+data.glm2 = tibble(x1 = runif(60, 0, 10), x2 = runif(60, 0, 10)) %>%
+  mutate(y = rpois(length(x1), lambda = exp(x1 - x2)))
+```
+
+Note that in these more complex models, plot may sometimes not be very
+useful.
+
+```{r}
+ggplot(data=data.glm2) + geom_point(aes(x = x1, y = y)) + scale_y_log10()
+```
+
+
+```{r}
+glm(y ~ x1 + x2, data=data.glm2, family=poisson())
+```
+
+# Non-linear regression
+
+As we have discussed, it may sometimes be the case that the linear assumption
+does not hold. In this case, we may consider a more general regression method,
+for example the generalized additive model.
+
+```{r}
+# the first time, you will need to install the gam package
+# Simply uncomment the line below to install the package
+
+# install.packages('gam')
+library(gam)
+```
+
+```{r}
+data.gam = tibble(x = runif(60, -2*pi, 2*pi)) %>%
+  mutate(y = rnorm(length(x), mean=cos(x), sd = 0.2))
+```
+
+```{r}
+ggplot(data=data.gam) +
+  geom_point(aes(x = x, y = y)) +
+  geom_smooth(aes(x = x, y = y), method='lm')
+```
+
+```{r}
+summary(lm(y ~ x, data=data.gam))
+```
+
+However, we may use a gam to model the behaviour of this more complex
+function.
+```{r}
+gam.fit = gam(y ~ s(x, df=4), data=data.gam)
+```
+
+```{r}
+gam.predict = data.gam %>% mutate(predicted = predict(gam.fit))
+
+ggplot(data=gam.predict) +
+  geom_point(aes(x = x, y = y), color='red') +
+  geom_point(aes(x = x, y = predicted), color='blue')
+```
+
+
+```{r}
+ggplot(data=tibble(x = seq(-2*pi, 2*pi, 0.1)) %>%
+         mutate(y = predict(gam.fit, .))) +
+  geom_point(aes(x = x, y = y))
+```
+
+We can also use the gam to fit Bernoulli outcomes of more than one variable.
+
+```{r}
+data.gam2 = tibble(x1 = runif(100, -2*pi, 2*pi), x2 = runif(100, -2*pi, 2*pi)) %>%
+  mutate(y = rbinom(length(x1), size = 1, p = inv.logit(cos(x1) + cos(x2))))
+```
+
+```{r}
+gam.fit2 = gam(y ~ s(x1, df=4) + s(x2, df=4), data = data.gam2, family=binomial())
+```
+
+Most results of `R` function also know how to plot themselves. We can see the fitted
+functions below.
+```{r}
+plot(gam.fit2)
+```
+
