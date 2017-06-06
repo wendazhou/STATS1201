@@ -1,0 +1,163 @@
+---
+title: "Homework 4"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+```
+
+
+# Simulating the 2016 American elections
+
+The presidential election in the United States involves a complex
+system known as the electoral college. This makes statistical prediction
+of the outcome somewhat more of a challenge. In this homework, we will
+consider simulating the 2016 election on the eve of election day,
+and look into the assumptions that go into predicting the outcome.
+
+
+# The electoral college
+
+The American electoral system works with a first past the post system by state,
+where the party that wins the majority in a given state wins all the electors
+of that state (we will ignore the peculiarities of Maine and Nebraska).
+Each state is assigned a fixed number of electors based on
+the state's population. We record this information in the dataframe below,
+along with Trump's and Clinton's polling average on the eve of the election (we
+will also ignore the third party vote).
+
+```{r}
+state.info = read_csv('../polling_average.csv')
+```
+
+# Simulating the election
+
+## Question 1: Determining the winner (3 points)
+
+Our first step is to consider how to determine the winner of the election
+from the result of the vote. Suppose that we obtain a dataframe with the
+percentage of people voting for Trump in each state, and the number of
+electors. Write a function to determine the total number of electors for
+trump, and apply this function to the polling info to determine the
+number of electors trump would win if the votes corresponded to the polls.
+
+Hint: we may write the number of electors trump obtains as a filter operation
+(only picking states where Trump has the majority) followed by an aggregation
+operation (summarising all electors by their sum).
+
+Complete the code below and indicate whether Trump would have won if the
+voting reflected the polling exactly:
+
+```{r}
+num.electors = function(data) {
+  # complete the function
+  # It should return the number of electors
+}
+
+# compute the number of electors as if
+# the voting results where the poll results
+num.electors(state.info)
+```
+
+
+## Question 2: Accounting for errors in the polls (3 points)
+
+However, we know that the polls are not completely accurate, and that the
+voting results may differ from the polling results. Let us simulate the voting
+results as a random normal, with mean corresponding to the polling result and
+standard deviation 2. Write a function that computes Trump's voting share in each
+state.
+
+Complete the function below to simulate the number of votes Trump would receive
+in each state:
+
+```{r}
+# This function creates a new dataframe with one column being the number of
+# electors in a state, and another column being the simulated vote share
+# for Trump.
+num.votes = function() {
+  # complete the function
+}
+```
+
+Below we use the function you have produced to simulate the outcome of 1000 elections,
+in terms of the number electors for trump.
+```{r}
+replicates = bind_rows(replicate(1000, num.votes() %>% num.electors(), simplify = F))
+```
+
+Use this to compute the probability (under this model) that Trump wins the election.
+Numerous newspapers and other information sources used a model similar to this one,
+which reports a very low probability of winning.
+```{r}
+# compute the probability that Trump wins
+```
+
+
+## Question 3: Correlation among errors (2 points)
+
+Let us now consider another model. Instead of modelling independent errors per
+state, we will suppose that there has been a single systematic error at
+the national level. Implement a function to simulate the outcome of the election
+supposing that there has been a polling error nationwide, which is modelled as
+a normal with mean 0 and standard deviation 2.
+
+```{r}
+num.votes.national = function() {
+  # complete the function
+}
+```
+
+```{r}
+replicates = bind_rows(replicate(1000, num.votes.national() %>% num.electors(), simplify = F))
+```
+
+Using the simulated results, compute the probability that Trump wins the election.
+Note that although the magnitude of the error is the same, 
+```{r}
+# compute the probability that Trump wins
+```
+
+## Question 4: Fat tails and unlikely events (2 points)
+
+The normal distribution happens to have tails that decay extremely fast.
+That is, the probability that a normal variable takes values much larger
+than its mean is extremely small. In particular, normal errors can
+underestimate the magnitude of errors. Consider the graph of the
+upper tail probabilities below:
+
+```{r}
+y = gather(tibble(normal.tail = pnorm(seq(0, 3, 0.01), lower.tail = F),
+                  t.tail = pt(seq(0, 3, 0.01), df=2, lower.tail = F),
+                  x = seq(0, 3, 0.01)), dist, p, normal.tail:t.tail)
+
+ggplot(data = y) + geom_line(aes(x = x, y = p, colour = dist))
+```
+
+We will use this property to produce a more conservative estimate of the
+probability of winning. Write a function as in the previous question assuming
+a single error at the national level, except model this error as twice a
+t distributed random variable with degrees of freedom 2 and non-centrality
+parameter 0 (hint: use the `rt` function and look at the documentation).
+```{r}
+num.votes.t = function() {
+  # write a function as in question 4, but generate the error as twice
+  # a t variable.
+}
+```
+
+We generate 1000 replicates again.
+```{r}
+replicates = bind_rows(replicate(1000, num.votes.t() %>% num.electors(), simplify = F))
+```
+
+Use the replicates to compute the probability that Trump wins the votes
+under the assumption of a t-distributed error.
+```{r}
+# compute the probability that Trump wins.
+```
+
+This model is now fairly similar to that obtained by 538, which used a more complex
+model based on the same ideas that there might be correlation in the errors. They
+gave a final estimate of about 30\% probability of winning.

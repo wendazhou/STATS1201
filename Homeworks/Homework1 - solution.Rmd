@@ -1,0 +1,158 @@
+---
+title: "Homework 1"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+# Homework 1
+
+In this homework, you will be asked to analyze a dataset of the price of
+diamonds. You are expected to provide both the result and the code used.
+Please submit both your .Rmd file, and the knitted html or pdf document.
+
+```{r}
+library(tidyverse)
+```
+
+The dataset already exists in R and is called diamonds.
+```{r}
+diamonds
+```
+The R help describes information about the dataset. It is included below for your
+reference:
+
+- price: price in US dollars (\$326-\$18,823)
+- carat: weight of the diamond (0.2-5.01)
+- cut: quality of the cut (Fair, Good, Very Good, Premium, Ideal)
+- color: diamond colour, from J (worst) to D (best)
+- clarity: a measurement of how clear the diamond is (I1 (worst), SI1, SI2, VS1, VS2, VVS1, VVS2, IF (best))
+- x: length in mm (0-10.74)
+- y: width in mm (0-58.9)
+- z: depth in mm (0-31.8)
+- depth: total depth percentage = z / mean(x, y) = 2 * z / (x + y) (43-79)
+- table: width of top of diamond relative to widest point (43-95)
+
+## Question 1 (0.5 point)
+
+For the following variables, indicate whether they are numerical or categorical,
+and give further details about their types where appropriate: price, carat, color.
+
+Answer below:
+
+
+## Question 2 (1 point)
+
+Compute the average price and the average weight (carat) of the diamonds sold.
+
+Answer below:
+
+```{r}
+mean(diamonds$carat)
+mean(diamonds$price)
+```
+
+
+## Question 3 (1 point)
+
+We wish to better understand the distribution of the weight (carat). Plot a histogram
+representing the distribution of the `carat` variable, with a bin width of 0.05.
+You may note some spikes in the data. Can you try to interpret those spikes?
+
+Answer below:
+
+```{r}
+ggplot(data=diamonds) + geom_histogram(aes(x=carat), binwidth=0.05)
+```
+
+We see some spikes around integer and half integer values. Indeed, in the process
+of cutting diamonds, jewelers may prefer to target a "round" value.
+
+## Question 4 (1.5 points)
+
+A common hypothesis is that heavier diamonds are more expensive. Use an appropriate
+visualization to confirm or invalidate this hypothesis. Explain your choice.
+
+Answer below:
+
+As both price and weight are continuous, a scatter plot is an appropriate
+visualization. We see below that the scatter plot indeed confirms this
+trend.
+
+```{r}
+ggplot(data=diamonds) + geom_point(aes(x = carat, y = price))
+```
+
+## Question 5 (1.5 points)
+
+Diamonds are rated on a color scale from J (worst) to D (best). It is natural
+to think that diamonds with a better color rating are more expensive. Use the
+appropriate visualization to confirm or invalidate this observation. Was
+the result what you expected?
+
+Answer below:
+
+We are interested in understanding how a continuous variable (price) differs
+by a category (color). A boxplot is an appropriate way to visualize this
+phenomenon. As we see below, it seems in fact that the price seems to
+increase when the color is judged worse! This strange phenomenon
+is related to Simpson's paradox, and we will attempt to explain
+it in the rest of the questions.
+
+```{r}
+ggplot(data=diamonds) + geom_boxplot(aes(x = color, y=price))
+```
+
+## Question 6 (1.5 points)
+
+Let's try to understand why the behaviour observed in question 5 does not match
+our expectation. We know from question 4 that the weight influences the price
+of a diamond significantly. In this question, we wish to only look at diamonds
+whose weight are between 1.0 and 1.2 carats. Reproduce the visualization you
+have chosen in question 5 on this reduced dataset. Comment on the interpretation.
+
+Answer below:
+
+We now filter down to the weight being between 1 and 1.2, and use a boxplot
+again. It seems now that the worst colors have become less expensive. This
+points to a confounding effect of weight on the price and color.
+
+```{r}
+ggplot(data= diamonds %>% filter(1 <= carat & carat < 1.2)) +
+  geom_boxplot(aes(x=color, y=price))
+```
+
+## Question 7 (1.5 points)
+
+It seems that taking the weight into account has somewhat resolved the paradox.
+It would be helpful to understand how the weight, price and color relate. Choose an
+appropriate visualization of the relationship of these three variables. Can you interpret
+the reason why diamonds with worse color seem more expensive in question 5?
+
+Answer below:
+
+We consider adding color as a third attribute to the plot. Another option would be
+to facet on the color. We see that at a given weight, the "worse" colors are
+cheaper and the "better" colors are more expensive. However, the worse colors
+have significantly more larger diamonds, which are just as expensive.
+
+```{r}
+ggplot(data=diamonds) + geom_point(aes(x=carat,y=price,colour=color))
+```
+
+
+## Question 8 (1.5 point)
+
+Compute the average weight of the diamonds sold for each colour. Use an aggregation
+operation to do so. Do the values support your explanation in question 7? Compare
+those averages to the grand average you computed in question 1. Which colors tend
+to be smaller, and which tend to be larger?
+
+Answer below:
+
+We see that the better the color is, the smaller is the average diamond. As the
+weight has an important impact on price, this explains the trend that we observe
+that over all the data, diamonds of worse color seem to be more expensive.
+```{r}
+diamonds %>% group_by(color) %>% summarise(AvgWeight = mean(carat))
+```
