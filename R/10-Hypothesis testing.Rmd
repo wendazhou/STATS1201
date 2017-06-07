@@ -1,0 +1,225 @@
+---
+title: "Hypothesis testing"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(broom)
+```
+
+
+# Hypothesis testing
+
+As a statistician, we are often required to take binary decisions when facing uncertainty.
+For example, we might be tasked to determine whether a drug designed to lower drug
+pressure is more effective than the placebo.
+
+In the problem of testing, we will be interested in comparing two possibilities: the
+null hypothesis, which is seen as the default and that we would like to disprove,
+and the alternative hypothesis, which represents the type of difference that we
+desire.
+
+## Graphical permutation tests
+
+Let us begin by considering an intuitive notion of graphical tests.
+Suppose that we are considering the blood pressure of patients between
+a control and a treatment group.
+
+```{r}
+set.seed(2)
+data.pressure = bind_rows(
+  tibble(group='control', blood.pressure = rnorm(20, mean=110, sd=20)),
+  tibble(group='treatment', blood.pressure = rnorm(20, mean=110, sd=20)))
+```
+
+We compute the pressure in each group, and see that the pressure in the treatment group
+is slightly lower than in the control group. Is this good evidence that the treatment
+lowers blood pressure?
+```{r}
+data.pressure %>% group_by(group) %>% summarise(avg.pressure = mean(blood.pressure))
+```
+
+```{r}
+ggplot(data=data.pressure) + geom_boxplot(aes(x=group, y=blood.pressure))
+```
+
+We are thus looking to test the following hypothesis:
+
+- The null hypothesis is $H_0$: that there is no difference in average blood pressure between
+the groups
+- The alternative hypothesis is $H_1$: that the average blood pressure is lower in the
+treatment group than in the control group.
+
+Under the null hypothesis, the group assignment does not matter. Hence we can permute
+patients between the control and treatment group. This will allow us to simulate the
+type of difference between the two groups we can expect if there is no difference
+between the two groups.
+```{r}
+# Creates a new sample by permuting the blood pressures
+# between the treatment and control groups
+sample.permute = function() {
+  data.pressure %>%
+    mutate(blood.pressure = sample(blood.pressure))
+}
+```
+
+We replicate the permutation 20 times, and attempt to see if we can graphically
+pick out the original dataset. We can compare this to a test at a 5\% level.
+
+There are two possibilities in which we can pick out our dataset: if there is
+a real difference between the two groups, then the non-permuted dataset is
+fundamentally different, and should be easy to pick out. On the other hand,
+the difference could simply be due to chance. In this case, we are unlucky
+enough that our dataset is "special" among 20 others. This should only happen
+about 1 in 20 times (5\% of the time).
+
+```{r}
+data.pressure.permuted = replicate(
+  19, sample.permute(),
+  simplify=F) %>%
+    bind_rows(.id = 'replicate')
+
+data.pressure.all = bind_rows(data.pressure, data.pressure.permuted)
+```
+
+```{r}
+ggplot(data=data.pressure.all) +
+  geom_boxplot(aes(x = group, y = blood.pressure)) +
+  facet_wrap(~replicate)
+```
+
+## Permutation test
+
+Can we achieve the same without all the cumbersome plots? We can consider a summary
+statistic of our data, say the difference in the average. In this case, we are looking
+for the difference in the average to be larger than 0 (the control group having higher
+blood pressure than the treatment group).
+
+```{r}
+# this function computes the difference of the averages
+# for a given data set
+diff.pressure = function(d) {
+  d %>%
+    group_by(group) %>%
+    summarise(avg.pressure = mean(blood.pressure)) %>%
+    summarise(p.diff = avg.pressure[1] - avg.pressure[2])
+}
+```
+
+We can compute the difference for our dataset, and we see a somewhat positive number.
+The question is then: how large is this number compared to what we expect by chance?
+```{r}
+diff.pressure(data.pressure)
+```
+
+In order to determine how large this deviation is, we will adopt the same strategy
+as we had in the graphical case: if there is no difference between the treatment and
+control group, we could permute observations from the two groups. We may then simulate
+the difference for each permutation.
+```{r}
+# create 1000 different permutations
+diff.permuted = replicate(1000, sample.permute() %>% diff.pressure(), simplify=F) %>% bind_rows() 
+```
+
+Let us plot a histogram of the simulated differences, and plot the location of
+our observed difference along it. This will give us an idea of whether the difference
+we observe is in the "bulk" of the distribution or is exceptional with regards
+to the distribution under the null hypothesis.
+```{r}
+ggplot(data=diff.permuted) +
+  geom_histogram(aes(x = p.diff), binwidth=1) +
+  geom_vline(xintercept = diff.pressure(data.pressure)$p.diff)
+```
+
+To quantify how much of an outlying observation we have, statisticians use
+the so-called p-value. The p-value is the probability under the null hypothesis
+that we observe a deviation that is as large or greater than the actual
+observed deviation.
+
+Here, we can compute a permutation p-value by looking at the proportion
+of the simulated observations that lie beyond the observed point.
+```{r}
+mean(diff.permuted$p.diff > diff.pressure(data.pressure)$p.diff)
+```
+
+## T-test
+
+Instead of simulating the distribution of our statistic of interest under the null,
+a possibility is to also compute its distribution exactly or approximately under the
+null. In this case, we have a well-known t-distribution. The R function `t.test`
+computes the required test and p-values.
+
+```{r}
+t.test(blood.pressure ~ group, data=data.pressure, alternative='greater', var.equal=T)
+```
+
+These test rely more heavily on the specific assumption of our data, but are
+much faster (no need for simulation), and can be computed with more precision
+(when they are correct).
+
+## Chi-square test of association
+
+Let us generate a trial including 40 patients. Each patient is randomly
+assigned to treatment or control group, and we suppose that the success
+is independent of the assignment.
+```{r}
+data.trial = tibble(treatment = rbernoulli(40), success = rbernoulli(40))
+
+table(data.trial)
+```
+
+
+We can compute the Pearson's chi-squared statistic as defined in class
+by using the `chisq.test` function. By default, it computes a p-value
+using the approximate chi-square distribution approximation.
+```{r}
+chisq.test(data.trial$treatment, data.trial$success, correct=F)
+```
+
+
+Another alternative is to consider permuting the data. If the treatment
+has no influence on the success, we can simply permute the outcomes
+of the trials.
+```{r}
+data.trial %>%
+  mutate(treatment = sample(treatment)) %>%
+  table() %>%
+  chisq.test() %>%
+  tidy()
+```
+
+We may replicate this several times and collect the results, in order to
+obtain an estimate of the distribution of our chi-squared statistic.
+```{r}
+sim.chisq = replicate(
+      1000,
+      data.trial %>%
+        mutate(treatment = sample(treatment)) %>%
+        table() %>%
+        chisq.test(correct=F) %>%
+        tidy(),
+      simplify = F) %>%
+    bind_rows(.id='replicate')
+```
+
+Let us compare our simulated chi-square statistic with the one we observed.
+
+```{r}
+ggplot(data = sim.chisq) +
+  geom_histogram(aes(x = statistic), binwidth=0.2) +
+  geom_vline(xintercept = chisq.test(data.trial %>% table(), correct=F)$statistic)
+```
+
+We may compute the simulation p-value by using
+```{r}
+mean(sim.chisq$statistic >= chisq.test(data.trial %>% table(), correct=F)$statistic)
+```
+
+It is in fact possible to analyse the simulation we have been doing
+analytically, and deduce the exact distribution we are estimating.
+Using this distribution, we are considering Fisher's exact test.
+```{r}
+fisher.test(data.trial %>% table())
+```
+
