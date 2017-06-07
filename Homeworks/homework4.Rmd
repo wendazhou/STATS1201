@@ -28,7 +28,7 @@ along with Trump's and Clinton's polling average on the eve of the election (we
 will also ignore the third party vote).
 
 ```{r}
-state.info = read_csv('../polling_average.csv')
+state.info = read_csv('../data/polling-average.csv')
 ```
 
 # Simulating the election
