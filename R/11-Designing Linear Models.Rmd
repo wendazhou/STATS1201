@@ -1,0 +1,447 @@
+---
+title: "Designing linear models"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(broom)
+library(stringr)
+library(mgcv)
+library(lubridate)
+```
+
+# Designing linear models
+
+Linear models will be the main tool we will use to analyze our datasets.
+They are flexible yet easy enough to interpret so that we can understand
+them. Let us consider how to analyze some datasets.
+
+# US 2016 Elections
+
+Let us consider how demographics affected the US 2016 elections.
+We can obtain voting results at a county level, which we cross-reference
+with the ACS (American Community Survey), also collected at a county level.
+
+```{r}
+election = read_csv('../data/US-2016-election-counties.csv')
+acs = read_csv('../data/acs-2015-counties.csv')
+```
+
+The counties are identified by their FIPS, which can be extracted from the ACS Id.
+We then combine the election results and the ACS data by joining on the fips, that is,
+matching rows according to their county code.
+```{r}
+acs$fips = str_sub(acs$Id, -5)
+election.combined = election %>% inner_join(acs, by='fips')
+```
+
+Let us first consider a very simple model. Suppose we wish to understand how
+the racial demographic of a county is related to the vote in favour of Trump.
+Let us simply consider regressing the proportion of black population in a county
+against the vote share for Trump.
+
+```{r}
+lm(per.gop ~ race.black, data=election.combined) %>%
+  summary()
+```
+
+Let us consider how we can improve this model. A first diagnostic we may be interested in
+looking at are the diagnostic plots, the most useful and easiest to interpret being
+the residuals vs fitted values. This plot is a scatter plot of the error we commit
+compared to the value we predicted. This plot seems to indicate that as we predict
+values that are higher, the quality of the prediction decreases. Additionally, it
+seems that there are a lot of points towards that direction.
+
+```{r}
+lm(per.gop ~ race.black, data=election.combined) %>%
+  plot(which=1)
+```
+
+In this case, we only have two variables. Let us investigate the relationship
+between the proportion of black population and the vote for Trump. We see that
+although or model is reasonable for counties with a high proportion of black
+population, there are numerous counties that have essentially no black population,
+and thus for which our model is unable to say much.
+
+```{r}
+ggplot(data=election.combined) + geom_point(aes(x = race.black, y = per.gop))
+```
+
+Let us consider adding a second variable, education. We create a composite education
+indicator called `education.college` which counts the proportion of the population
+having a bachelor or graduate degree.
+
+```{r}
+election.combined = election.combined %>%
+  mutate(education.college = education.bachelor + education.graduate,
+         age.above65 = age.65.74 + age.75,
+         poverty.some = poverty.100 + poverty.100.150,
+         income.below25 = income.0.9 + income.10.15 + income.15.25)
+```
+
+We can similarily consider the regression on both those variables, and see how
+it affects the vote share. Similarly, we can consider a diagnostic plot of the
+residuals and see that it has improved a signficant amount.
+```{r}
+lm(per.gop ~ race.black + education.college,
+   data=election.combined) %>% summary()
+```
+
+```{r}
+lm(per.gop ~ race.black + education.college,
+   data=election.combined) %>% plot(which=1)
+```
+
+Finally, here is a possible model including numerous variables.
+However, note that it is not possible to interpret this data
+in any causal fashion. The regression can only indicate
+correlation between the quantities of interest, and the
+underlying phenomena may be much more complex.
+
+```{r}
+fit.eall = lm(per.gop ~ race.black + education.college + education.nohs +
+     age.above65 + income.below25 +
+     marital.married + median.age + median.income +
+     english.other + poverty.some,
+   data=election.combined)
+summary(fit.eall)
+```
+
+
+In particular, we should be careful about the correlation of
+our covariates. Suppose that we have included both the proportion
+of white and black people in the regression.
+```{r}
+lm(per.gop ~ race.black + race.white, data=election.combined) %>% summary()
+```
+We now seem to observe that counties with higher proportions of
+black population seem more likely to vote for Trump. However, let us plot
+the predicted vote share, and the proportion of black population
+in each county:
+
+```{r}
+lm(per.gop ~ race.black + race.white, data=election.combined) %>%
+  augment() %>%
+  ggplot() +
+  geom_point(aes(x=race.black, y=.fitted))
+```
+
+We see that it is in fact not the case. In reality, the U.S. population can mostly
+be classified as white or black in most counties, and so counties with a higher share
+of the black population have a smaller share of white population, which causes the
+predicted vote share to decrease.
+
+# D.C. Bike share data
+
+```{r}
+bike = read_csv('../data/bike-sharing.csv')
+bike = bike %>%
+  mutate(datetime = with_tz(datetime, tz='US/Eastern')) %>%
+  mutate(hour = hour(datetime),
+         workingday = as.factor(workingday),
+         dayOfYear = yday(with_tz(datetime, tz='US/Eastern')),
+         weathersit = recode(factor(weathersit, ordered=T),
+                             '1' = 'clear', '2' = 'cloudy', '3' = 'light rain', '4' = 'heavy rain'),
+         month=factor(month(datetime)),
+         temp = temp * 47 - 8,
+         atemp = atemp * 66 - 16)
+```
+
+Let us attempt to model the user count for the D.C. bike share data. As we are modelling
+a count, a poisson regression seems appropriate. Suppose we wish to understand how
+the number of users depend on the temperature, say:
+```{r}
+summary(glm(count ~ temp, data=bike))
+```
+
+## Categorical variables in linear regression
+
+Let us know consider the effect of a working day. Suppose we wish to understand
+whether there are more or fewer people using the system on non-working days.
+We would like to add the working day variable to our regression. However,
+this is categorical variable, and does not have a numerical value. We will
+need to use a dummy coding, which R does automatically for us.
+
+The dummy code allows us to include the categorical by adding a coefficient
+that represents the difference between the two categories. In this case,
+we see that the `working` category of the `workingday` variable is positive,
+which means that there are slightly more users on average on a working day.
+
+```{r}
+glm(count ~ temp + workingday, family=poisson(), data=bike) %>% summary()
+```
+
+Let us check how we are doing by comparing our prediction with
+the actual values. In this case, we cane see that we completely
+fail to capture the hourly pattern. The next step could be to
+include the time of day in the regression.
+```{r}
+plot_bike = function(fit, start = '2011-07-01', end='2011-07-14') {
+  bike %>%
+    mutate(fitted = predict(fit, type='response')) %>%
+    select(fitted, actual = count, datetime) %>%
+    gather(type, count, -datetime) %>%
+    filter(start < datetime & datetime < end) %>%
+    ggplot() +
+    geom_line(aes(x = datetime, y=count, colour=type))
+}
+```
+
+```{r}
+plot_bike(glm(count ~ temp + workingday, data=bike))
+```
+
+
+
+We may also like to include the time of day in hour as a categorical
+variable, as this 
+```{r}
+fit.hour = glm(count ~ temp + workingday + factor(hour), family=poisson(), data=bike)
+summary(fit.hour)
+```
+
+```{r}
+plot_bike(fit.hour, '2011-06-01','2011-06-8')
+```
+
+First, note that with the time of day included, the dependence on the temperature
+has lessened significantly. This is due to the fact that our initial regression
+reflected the fact that it is both warmer during the day and there are more
+people using the bikes during the day (although the two are not inherently related).
+
+However, we still see that we are not able to accurately model the difference between
+week days and weekends, even though both the working day and the hour are included
+in the model. This is due to the linearity of the model. To alleviate this problem,
+we may consider using an interaction term.
+
+## Interaction terms
+
+In some cases, the effect of one variable may depend on the value of another variable.
+For example, in our case, the effect of the time of day depends on whether it is a weekday
+or a week-end. Such a case is called an interaction, and can be specifically modelled in
+linear regression by a so-called interaction term.
+
+```{r}
+fit.inter = glm(count ~ temp + factor(hour) * workingday, family=poisson(), data=bike)
+fit.inter %>% summary()
+```
+
+```{r}
+plot_bike(fit.inter, '2011-04-01','2011-04-8')
+```
+
+## Plotting residuals
+
+When the data gets large, it may be difficult to understand what our model is able
+to capture and what it is not able to capture. Plotting residuals can be a strategy
+to understand what we are not able to capture. For example, here we consider the
+residuals plotted against the date. We see that there is an increasing trend that
+we are failing to capture, as we seem to be consistently overpredicting towards
+the start and underpredicting towards the end
+
+```{r}
+bike %>%
+  mutate(res = resid(fit.inter, type='deviance')) %>%
+  ggplot(data=., aes(x = datetime, y=res)) +
+  geom_point() +
+  geom_smooth(method='lm')
+```
+
+We can do something similar for all variables of interest. For example, let us consider plotting
+the residuals against the weather situation. As the latter is a categorical variable, we will
+use a boxplot instead. Again, we see that we seem to be consistently overpredicting when the
+weather is either light rain or heavy rain.
+
+```{r}
+bike %>%
+  mutate(res = resid(fit.inter, type='deviance')) %>%
+  ggplot(data=., aes(x = weathersit, y=res)) +
+  geom_boxplot()
+```
+
+Finally, it is also possible to consider plotting the residuals against variables that
+we have already considered. This allows us to visualize whether there are effects beyond
+the linear effect that we failed to capture. For example, we see here that we tend to
+overestimate the number of users consistently when the temperature is very high.
+This is due to the fact that in general, higher temperatures lead to more users,
+except when the temperature gets extremely high.
+
+```{r}
+bike %>%
+  mutate(res = resid(fit.inter, type='deviance')) %>%
+  ggplot(data=., aes(x = temp, y=res)) +
+  geom_point() + 
+  geom_smooth(method='lm') +
+  geom_smooth(color='red')
+```
+
+To remedy to these situations, let us add the relevant variables into the regression:
+```{r}
+fit.all = glm(count ~ datetime + weathersit + temp + factor(hour) * workingday, family=poisson(), data=bike)
+summary(fit.all)
+```
+
+## Beyond linear terms in linear regression
+
+Despite the name linear regression, linear regression is able to fit more
+than straight lines. For example, let us try to fit a quadratic term to
+the temperature.
+
+```{r}
+fit.quad = glm(count ~ datetime + weathersit + poly(temp, 2) + factor(hour) * workingday, family=poisson(), data=bike)
+summary(fit.quad)
+```
+
+The poly adds polynomial terms in terms of the linear regression.
+For example, below are the first 3 terms that are added to the regression
+by the given polynomial function.
+```{r}
+polys = tibble(x = seq(-1, 1, 0.05)) %>%
+  bind_cols(as_data_frame(poly(.$x, 3))) %>%
+  gather(degree, value, -x)
+
+ggplot(data=polys)+ geom_line(aes(x = x, y = as.numeric(value), colour=degree))
+```
+
+In general, polynomials of degree greater than 2 are not adequate for regression,
+as polynomials tend to be very unstable. As small change in the dataset can cause
+a great change in the fit. For example, in this case we fit a cubic spline to the
+time of day (instead of having a factor). A spline is a piecewise smooth polynomial,
+and can also be used to model non-linearities. For example, let us model the hour component
+using a spline instead of using factors. This greatly reduces the number of parameters.
+
+However, we should note that these techniques to model non-linearities make the model
+much harder to interpret. They should only be used if we have clear evidence of non-linear
+patterns.
+```{r}
+fit.spline = glm(count ~ datetime + weathersit + poly(temp, 2) +
+                 bs(hour, knots=c(8, 12, 16, 20)) * workingday, family=poisson(), data=bike)
+
+summary(fit.spline)
+```
+
+```{r}
+plot_bike(fit.spline, '2011-04-01', '2011-04-08')
+```
+
+
+# Diamonds price
+
+As we have seen in the homeworks, the prices for a diamond depend on
+numerous factors. Let us first consider how the price of a diamond
+depends on its weight:
+```{r}
+fit.lm = lm(price ~ carat, data=diamonds)
+summary(fit.lm)
+```
+
+```{r}
+plot(fit.lm, which=1)
+```
+
+
+## Ordinal variables in linear regression
+
+Let us now consider how ordinal variables are treated in regression.
+As ordinal variables are a categorical variable, we could consider
+using the same dummy coding as for the other categorical variables
+we have seen. However, we have a notion of order for ordinal variables,
+and we will be interested in how that relate to the response. By default,
+R uses so called polynomial contrasts for ordinal variables.
+
+Below, we can see that the linear term is positive, so the price
+increases as the quality goes from D to J. As we have seen in the first
+homework, this is due to the confounding effect of the weight.
+```{r}
+lm(price ~ color, data=diamonds) %>% summary()
+```
+
+```{r}
+n.contrasts = 4
+
+contr.poly(1:n.contrasts) %>%
+  as_data_frame() %>%
+  mutate(x = 1:n.contrasts) %>%
+  gather(key, value, -x) %>%
+  ggplot() + geom_line(aes(x = x, y = value, colour=key))
+```
+
+In order to fix that, we can regress on both the weight and the color at the same time.
+```{r}
+fit.wc = lm(price ~ carat + color, data=diamonds)
+fit.wc %>% summary()
+```
+Now, we see that the linear term for color is negative, indicating
+that the price decreases as the color goes from D to J, as we would
+normally expect.
+
+However, looking at the diagnostic plot, we see that our fit is
+still very bad.
+
+```{r}
+plot(fit.wc, which = 1)
+```
+
+By plotting the residuals of the fit against the weight, we see that in fact we have
+not explained all the behaviour that arises in terms of the weight. We could attempt
+to address this problem by using some non-linear technique, but let us first consider
+another strategy.
+
+```{r}
+diamonds %>% mutate(resid = residuals(fit.wc)) %>% ggplot() + geom_point(aes(x = carat, y = resid))
+```
+
+In this case, it might be that modelling the price may not be the best target.
+Indeed, looking at the univariate distribution of the price, we see that it is
+very skewed. When the data presents such a strong skew, it may be useful to
+transform it before modelling the data. For example, we may wish to regress
+the log of the price instead.
+
+```{r}
+ggplot(data=diamonds) +
+  geom_histogram(aes(x = price), bins=40)
+```
+
+```{r}
+ggplot(data=diamonds) + geom_histogram(aes(x = log(price)), bins=40)
+```
+
+Note that just as with the glms, regressing on the log also changes how the covariates interact
+with each other. Now, the effect of each covariate is multiplicative instead of additive. In
+our context here, it may indeed be a good choice.
+
+```{r}
+fit.wclog = lm(log(price) ~ carat + color, data=diamonds)
+summary(fit.wclog)
+```
+
+Although the diagnostic plots display fewer anomalies, we still see
+that the fit is not adequate and there is a sytematic pattern in
+our errors.
+```{r}
+plot(fit.wclog, which=1)
+```
+
+Looking at the residual v.s. the weight, we see that we are still consistently overpredicting
+when the weight is large.
+```{r}
+diamonds %>% mutate(resid = residuals(fit.wclog)) %>% ggplot() + geom_point(aes(x = carat, y = resid))
+```
+
+To sorve the problem, we can again consider using a spline. By looking at the location
+of the changes in direction, we may believe that choosing knots at 0.5, 1 and 3 may
+be good choices.
+```{r}
+fit.all = lm(log(price) ~ bs(carat, knots=c(0.5, 1, 3)) + clarity + color, data=diamonds)
+summary(fit.all)
+```
+
+Now plotting the residual v.s. fitted gives a plot that has no particular
+pattern.
+```{r}
+plot(fit.all, which = 1)
+```
+
+
+
