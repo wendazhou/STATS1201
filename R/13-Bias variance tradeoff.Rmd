@@ -1,0 +1,192 @@
+---
+title: "Bias-variance tradeoff in estimation"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(broom)
+```
+
+
+# Bias-variance tradeoff
+
+It is often tempting to make models as flexible as possible in order
+to capture every possibilities. However, flexibility may come as
+a cost in terms of the amount of data required to accurately
+estimate the parameters. Sometimes, it may be beneficial to assume simpler
+models even if the models are incorrect.
+
+## Simple bias variance tradeoff for estimators.
+
+Let us first consider the bias-variance tradeoff for estimating a single quantity.
+We will consider the estimator for the variance, and compare the estimator with
+a $n-1$ in the denominator to the estimator with a $n$ in the estimator.
+
+```{r}
+n = 10
+n_replica=10000
+
+variance = tibble(x = rnorm(n * n_replica), replicate=rep(1:n_replica, rep.int(10, n_replica))) %>%
+  group_by(replicate) %>%
+  summarise(s = var(x), sigma = var(x) * (n-1) / n)
+```
+
+```{r}
+variance %>%
+  transmute(s = s - 1, sigma = sigma - 1) %>%
+  gather(estimator, value) %>%
+  ggplot() +
+  geom_histogram(aes(x = value), bins=20) +
+  facet_wrap(~estimator)
+```
+
+```{r}
+variance %>%
+  select(-replicate) %>%
+  gather(estimator, value) %>%
+  group_by(estimator) %>%
+  summarise(bias = mean(value - 1), variance = var(value - 1), mse = mean((value - 1)^2))
+```
+
+We saw that the variance estimator with a $n - 1$ in the denominator was unbiased. In simulation,
+it is indeed the case that the bias is extremely small. On the other hand, the variance is significantly
+higher than the estimator sigma, and hence overall the mse is worse.
+
+
+## Bias-variance tradeoff in models
+
+### Nuisance variables
+
+Similarly, it may sometimes be useful to have models that are deliberately simpler in order
+to trade-off bias and variance. For example, let us consider a linear model with 2 real
+variables, and one variable that does not interact with the model.
+
+```{r}
+n = 20
+d = tibble(x1 = rnorm(n), x2 = rnorm(n), x3=rnorm(n)) %>%
+  mutate(y = rnorm(n, mean=x1 + x2))
+```
+
+Here, we see that the third variable is not significant (as expected), and we will
+see that we pay a penalty for considering that variable.
+
+```{r}
+lm(y ~ x1 + x2 + x3, data=d) %>% summary()
+```
+
+```{r}
+n_replica = 1000
+lm_simulated = tibble(x1 = rnorm(n * n_replica), x2 = rnorm(n * n_replica),
+       x3 = rnorm(n * n_replica), replica=rep(1:n_replica, rep.int(n, n_replica))) %>%
+  mutate(y = rnorm(n * n_replica, mean = x1 + x2)) %>% 
+  group_by(replica) %>%
+  do(bind_rows(full=lm(y ~ x1 + x2 + x3, data=.) %>% tidy() %>% select(term, estimate),
+               reduced=lm(y ~ x1 + x2, data=.) %>% tidy() %>% select(term, estimate),
+               .id='model'))
+```
+
+```{r}
+lm_estimates = lm_simulated %>%
+  spread(term, estimate, fill=0) %>%
+  select(-`(Intercept)`)
+
+lm_estimates
+```
+
+We can compute the mse for each variable and the total mse.
+```{r}
+lm_estimates %>%
+  group_by(model) %>%
+  summarise(mse.x1 = mean((x1 - 1)^2), mse.x2 = mean((x2 - 1)^2), mse.x3 = mean(x3^2),
+            mse.reduced = mse.x1 + mse.x2, mse.total = mse.reduced + mse.x3)
+```
+
+We see that not-only do we occur a higher total mse, we occur more estimation error on the variables of
+interest. Having to estimate x3 (which is simply some noise) makes us less precise at estimating the
+values of x1 and x2.
+
+### Small variables
+
+We can in fact obtain a similar phenomenon even when we fit a model that is wrong. For example,
+let us consider a model that is similar to the previous one, with the difference being that x3
+has a small but non-zero contribution. In this case, we see that even though we are not fitting
+the true model, it is still the case that the reduced model has mean squared error: i.e. it performs
+better.
+
+
+```{r}
+n_replica = 1000
+lm.simulated.small = tibble(x1 = rnorm(n * n_replica), x2 = rnorm(n * n_replica),
+       x3 = rnorm(n * n_replica), replica=rep(1:n_replica, rep.int(n, n_replica))) %>%
+  mutate(y = rnorm(n * n_replica, mean = x1 + x2 + 0.1 * x3)) %>% 
+  group_by(replica) %>%
+  do(bind_rows(full=lm(y ~ x1 + x2 + x3, data=.) %>% tidy() %>% select(term, estimate),
+               reduced=lm(y ~ x1 + x2, data=.) %>% tidy() %>% select(term, estimate),
+               .id='model'))
+```
+
+```{r}
+lm.simulated.small %>%
+  spread(term, estimate, fill=0) %>%
+  select(-`(Intercept)`) %>%
+  group_by(model) %>%
+  summarise(mse.x1 = mean((x1 - 1)^2), mse.x2 = mean((x2 - 1)^2), mse.x3 = mean((x3 - 0.1)^2),
+            mse.reduced = mse.x1 + mse.x2, mse.total = mse.reduced + mse.x3)
+```
+
+However, this is partly due to the fact that we do not have enough data. Suppose that we had
+more data available, then fitting the simpler model might incur a bias that is too high. In
+this case, it is more profitable to include the true model. In general, as we obtain more data,
+more complex models will perform better. However, in cases where we only have little data,
+we should be more mindful of the complexity of the model in use.
+
+```{r}
+n.more = 200
+n_replica.more = 500
+lm.simulated.small.moredata =
+  tibble(x1 = rnorm(n.more * n_replica.more), x2 = rnorm(n.more * n_replica.more),
+         x3 = rnorm(n.more * n_replica.more), replica=rep(1:n_replica.more, rep.int(n.more, n_replica.more))) %>%
+  mutate(y = rnorm(n.more * n_replica.more, mean = x1 + x2 + 0.1 * x3)) %>% 
+  group_by(replica) %>%
+  do(bind_rows(full=lm(y ~ x1 + x2 + x3, data=.) %>% tidy() %>% select(term, estimate),
+               reduced=lm(y ~ x1 + x2, data=.) %>% tidy() %>% select(term, estimate),
+               .id='model'))
+```
+
+```{r}
+lm.simulated.small.moredata %>%
+  spread(term, estimate, fill=0) %>%
+  select(-`(Intercept)`) %>%
+  group_by(model) %>%
+  summarise(mse.x1 = mean((x1 - 1)^2), mse.x2 = mean((x2 - 1)^2), mse.x3 = mean((x3 - 0.1)^2),
+            mse.reduced = mse.x1 + mse.x2, mse.total = mse.reduced + mse.x3)
+```
+
+
+### Small non-linearities
+
+Let us now consider instead models with non-linearities. They follow a very similar behaviour to
+what we have seen above. Indeed, although the true model is not linear (i.e. has a second order component),
+we do not have enough data to estimate it reliably, so attempting to fit the more complex model
+yields higher mse.
+
+```{r}
+n_replica = 1000
+lm.simulated.poly = tibble(x1 = rnorm(n * n_replica), x2 = rnorm(n * n_replica),
+                            replica=rep(1:n_replica, rep.int(n, n_replica))) %>%
+  mutate(y = rnorm(n * n_replica, mean = x1 + x2 + 0.1 * x2^2 )) %>% 
+  group_by(replica) %>%
+  do(bind_rows(full=lm(y ~ x1 + x2 + I(x2^2), data=.) %>% tidy() %>% select(term, estimate),
+               reduced=lm(y ~ x1 + x2, data=.) %>% tidy() %>% select(term, estimate),
+               .id='model'))
+```
+
+```{r}
+lm.simulated.poly %>%
+  spread(term, estimate, fill=0) %>%
+  select(-`(Intercept)`) %>%
+  group_by(model) %>%
+  summarise(mse.x1 = mean((x1 - 1)^2), mse.x2.lin = mean((x2 - 1)^2), mse.x2.sq = mean((`I(x2^2)` - 0.1)^2),
+            mse.reduced = mse.x1 + mse.x2.lin, mse.total = mse.reduced + mse.x2.sq)
+```

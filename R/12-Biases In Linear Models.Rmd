@@ -1,0 +1,113 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# The omitted variable bias
+
+We have seen previously that in the case of non-experiments, we could occur significant
+bias in our estimation if the sampling has been done in a careless fashion. However, we will
+now see that even with a sampling scheme that is adequate, confounding variables can cause
+significant bias in what is called the omitted variable bias.
+
+```{r}
+library(tidyverse)
+```
+
+Let us consider a simple example.
+```{r}
+n = 40
+d = tibble(x1 = runif(n, 0, 10)) %>%
+  mutate(x2 = rnorm(n, mean=x1)) %>%
+  mutate(y = rnorm(n, mean=x2))
+```
+
+
+We have constructed an example where we have two correlated variables, x1 and x2. Now,
+the response y only depends on x2, but the correlation will mislead us if we do not
+know about x2.
+```{r}
+lm(y ~ x1, data=d) %>% summary()
+```
+
+Here, we see that we estimate a very significant correlation between the response y and x1, which
+is indeed accurate. However, in this case this correlation disappears as we add the variable x2.
+This is particularly important if we wish to consider causal interpretations. Indeed, acting on
+a variable that is significantly correlated may not guarantee any change in the response.
+```{r}
+lm(y ~ x1 + x2, data=d) %>% summary()
+```
+
+In other cases, this can include changing the effect of a given variable.
+For example, consider the following case:
+```{r}
+d = tibble(x1 = runif(n, 0, 10)) %>% mutate(x2 = rnorm(n, mean=x1), y = rnorm(n, mean=x1 - 2*x2))
+```
+In this case, the marginal model with only x1 observes a negative effect of x1 on the response
+y. Hence we may be tempted to interpret this in a causal fashion to say that increasing decreasing
+x1 would lead to an increase in y. but adding the omitted variable shows that it is not the case.
+
+```{r}
+lm(y ~ x1, data=d) %>% summary()
+```
+
+```{r}
+lm(y ~ x1 + x2, data=d) %>% summary()
+```
+
+## Interactions
+
+This situation may arise in various forms. For example, another possibility may be that variables
+interact in a non-trivial fashion.
+```{r}
+d = tibble(x1 = rnorm(n, mean=1), x2=rnorm(n)) %>% mutate(y = rnorm(n, mean= x2 * x1 - x2))
+```
+
+```{r}
+lm(y ~ x1 + x2, data=d) %>% summary()
+```
+
+For example, in this case, the effect of x1 depends on the value of x2. In particular, if we're not
+allowed to look at x2's value, x1 does not seem to have an effect on average, and thus is not
+significant. However, adding the interaction term in the linear model now gives:
+```{r}
+lm(y ~ x1 * x2, data=d) %>% summary()
+```
+And we recover the significant coefficient in front of x2.
+
+## Categorical variables
+
+Such biases may also happen with categorical variables. Consider the following examples,
+with the variable cat having three categories.
+
+```{r}
+d.categorical = tibble(cat = sample.int(3, size=n, replace=T)) %>%
+  mutate(x = rnorm(n, mean=5*cat, sd=0.5), y = rnorm(n, mean=x - 2*cat), cat=factor(cat)) %>%
+  mutate(cat=fct_recode(cat, 'A' = '1', 'B' = '2', 'C' = '3'))
+```
+
+```{r}
+lm(y ~ cat, data=d.categorical) %>% summary()
+```
+
+At first glance, it would seem that the higher values of cat lead to higher
+values of the outcome y, but if we take into account the confounding variable
+x, we see that this is in fact not the case.
+
+```{r}
+lm(y ~ x + cat, data=d.categorical) %>% summary()
+```
+
+We may also consider treating `cat` as an ordered factor in this case
+```{r}
+d.categorical.ordered = d.categorical %>% mutate(cat = as.ordered(cat))
+```
+
+```{r}
+lm(y ~ cat, data=d.categorical.ordered) %>% summary()
+```
+
+```{r}
+lm(y ~ cat + x, data=d.categorical.ordered) %>% summary()
+```
+
