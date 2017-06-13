@@ -1,0 +1,296 @@
+---
+title: "Variable selection"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(broom)
+library(splines)
+library(leaps)
+library(ElemStatLearn)
+```
+
+
+# Variable selection
+
+We have seen that including extraneous variables in a model can be disadvantageous.
+In this workbook, we will consider the possibility of selecting automatically
+which variables to use from the data.
+
+## Why R^2 is not a good selection criteria
+
+A first idea to select a set of variables would be to simply look at the set of
+variables that has the largest R^2. This is equivalent to fitting the best
+possible line or curve.
+
+Let us consider a simple example of polynomial regression. We will try to fit
+the curve given by $y = x + x^2$.
+
+```{r}
+n = 20
+d = tibble(x = runif(n, 0, 2)) %>% mutate(y = rnorm(n, mean =  x + x^2))
+```
+
+Let us compute 4 fits, using polynomials of degree 1 to 4. We will then compare their
+different R^2 and also plot the fits.
+```{r}
+fit.poly1 = lm(y ~ poly(x, 1), data=d)
+fit.poly2 = lm(y ~ poly(x, 2), data=d)
+fit.poly3 = lm(y ~ poly(x, 3), data=d)
+fit.poly4 = lm(y ~ poly(x, 4), data=d)
+
+fit.polys = tibble(degree = 1:4,
+                   fit = list(fit.poly1, fit.poly2, fit.poly3, fit.poly4))
+```
+
+We may look at the R^2 of each fit. We see that as the degree increases,
+the R^2 increases. Does this indicate a better fit?
+```{r}
+fit.polys %>%
+  rowwise() %>%
+  do(glance(.$fit))
+```
+
+```{r}
+pred.grid = seq(0, 2, 0.05)
+
+true_value = tibble(x = pred.grid) %>% mutate(y = x + x^2)
+
+fit.polys %>%
+  rowwise() %>%
+  do(tibble(degree=factor(.$degree, levels=1:4),
+            x = pred.grid,
+            fitted = predict(.$fit, newdata=tibble(x = pred.grid)))) %>%
+  ggplot() +
+  geom_line(aes(x = x, y = fitted, colour=degree)) +
+  geom_point(aes(x = x, y = y), data=d) +
+  geom_line(aes(x = x, y = y), size=1, data=true_value)
+```
+
+In this case, we see that the best fit is given by the model of order 2,
+which is the true model.
+
+In other cases, the true model may not be one we have specified.
+For example, let us generate some data according to a sine response.
+
+```{r}
+n = 20
+d = tibble(x = runif(n, 0, pi)) %>% mutate(y = rnorm(n, mean = sin(x), sd=0.5))
+
+k = c(pi/2)
+bk= c(0, pi)
+fit.poly1 = lm(y ~ bs(x, knots=k, Boundary.knots=bk, degree = 1), data=d)
+fit.poly2 = lm(y ~ bs(x, knots=k, Boundary.knots=bk, degree = 2), data=d)
+fit.poly3 = lm(y ~ bs(x, knots=k, Boundary.knots=bk, degree = 3), data=d)
+fit.poly4 = lm(y ~ bs(x, knots=k, Boundary.knots=bk, degree = 4), data=d)
+
+fit.polys = tibble(degree = 1:4,
+                   fit = list(fit.poly1, fit.poly2, fit.poly3, fit.poly4))
+
+pred.grid = seq(0, pi, 0.05)
+
+true_value = tibble(x = pred.grid) %>% mutate(y = sin(x))
+
+fitted = fit.polys %>%
+  rowwise() %>%
+  do(tibble(degree=factor(.$degree, levels=1:4),
+            x = pred.grid,
+            y = predict(.$fit, newdata=tibble(x = pred.grid))))
+
+
+
+ggplot(data=fitted) +
+  geom_line(aes(x = x, y = y, colour=degree)) +
+  geom_point(aes(x = x, y = y), data=d) +
+  geom_line(aes(x = x, y = y), size=1, data=true_value)
+```
+
+```{r}
+fit.polys %>%
+  rowwise() %>%
+  do(glance(.$fit))
+```
+
+
+## Information criteria
+
+We thus need a better criterion to select among multiple possible models. Indeed,
+the difficulty is that as we add more variables, the model always fits better,
+but might overfit. An idea is to penalize the number of models we consider.
+The AIC (Akaike Information Criterion) attempts to characterise that and
+is defined as (in the context of ordinary least squares):
+\[
+  AIC = 2k + 2 n \log (RSS)
+\]
+where $k$ is the number of variables in the model. Lower values of the AIC
+are considered more favourable. Another commonly used information criterion
+is the BIC (Bayesian information criterion), which is defined as
+\[
+  BIC = 2 k \log n + \log RSS
+\]
+
+We may compute these in R by using the AIC and BIC functions. In general,
+the BIC is more useful to select variables -- i.e. answer the question:
+what influences my outcome. The AIC is more useful to improve prediction,
+i.e. answer the question: which variables should I pick so that my predictions
+are as close as possible?
+
+```{r}
+d = tibble(x1 = rnorm(n), x2 = rnorm(n), x3=rnorm(n)) %>%
+  mutate(y = rnorm(n, mean=x1 + x2))
+
+AIC(lm(y ~ x1 + x2 + x3, data=d))
+BIC(lm(y ~ x1 + x2 + x3, data=d))
+```
+
+For example, let us compare the two linear models using AIC. We see that AIC
+is able to decide that the model should not include the x3 variable.
+
+```{r}
+n = 20
+n_replica = 1000
+lm_simulated.reduced = tibble(x1 = rnorm(n * n_replica), x2 = rnorm(n * n_replica),
+       x3 = rnorm(n * n_replica), replica=rep(1:n_replica, rep.int(n, n_replica))) %>%
+  mutate(y = rnorm(n * n_replica, mean = x1 + x2)) %>% 
+  group_by(replica) %>%
+  do(bind_rows(full=lm(y ~ x1 + x2 + x3, data=.) %>% glance(),
+               reduced=lm(y ~ x1 + x2, data=.) %>% glance(),
+               .id='model'))
+```
+
+```{r}
+lm_simulated.reduced %>%
+  select(replica, model, BIC) %>%
+  spread(model, value = BIC) %>%
+  mutate(correct = full > reduced) %>%
+  ungroup() %>%
+  summarise(prob.correct = mean(correct))
+```
+
+On the other hand, if the true model actually includes x3, then aic can also recognise
+this. We thus see that AIC can be a good tool to select a model of adequate complexity.
+
+```{r}
+n = 20
+n_replica = 1000
+lm_simulated.full = tibble(x1 = rnorm(n * n_replica), x2 = rnorm(n * n_replica),
+       x3 = rnorm(n * n_replica), replica=rep(1:n_replica, rep.int(n, n_replica))) %>%
+  mutate(y = rnorm(n * n_replica, mean = x1 + x2 + 0.5 * x3)) %>% 
+  group_by(replica) %>%
+  do(bind_rows(full=lm(y ~ x1 + x2 + x3, data=.) %>% glance(),
+               reduced=lm(y ~ x1 + x2, data=.) %>% glance(),
+               .id='model'))
+
+lm_simulated.full %>%
+  select(replica, model, BIC) %>%
+  spread(model, value = BIC) %>%
+  mutate(correct = reduced > full) %>%
+  ungroup() %>%
+  summarise(prob.correct = mean(correct))
+```
+
+Although these criteria give us a general way of deciding which of several models may be best,
+in general we do not necessarily have several models at our disposition. In particular, one
+question we will often face is among a set of variables, choosing the best ones to form a model.
+
+This is commonly called the best subset regression. We illustrate this technique on a dataset
+modelling the level of a prostate specific antigen in men with prostate cancer as a regression
+on a variety of clinical measures
+```{r}
+data(prostate)
+prostate = prostate %>% select(-train)
+prostate
+```
+
+We may first consider a full model with all possible measures,
+but we see that a wide number a not significant. This may indicate
+that our model considers too many variables.
+```{r}
+lm(lpsa ~ ., data=prostate) %>% summary()
+```
+
+One strategy may be to consider all possible sets of variables.
+The regsubsets function from the leaps package allows us to do that
+```{r}
+bestsubsets = regsubsets(lpsa ~ ., data=prostate)
+summary(bestsubsets)
+```
+It computes the best variables to pick for each possible model
+size. It also computes the residual sum of squares and the
+bic for the best model of each size.
+
+```{r}
+summary(bestsubsets)$rss
+```
+
+```{r}
+summary(bestsubsets)$bic
+```
+
+In this case, we see that the third model has lowest BIC, and so might be the one
+we prefer. On the other hand, we may also use the AIC, which Leaps presents as Cp,
+and in this case we would prefer the 5th model.
+```{r}
+summary(bestsubsets)$cp
+```
+
+```{r}
+lm(lpsa ~ lcavol + lweight, data=prostate) %>% summary()
+```
+
+```{r}
+lm(lpsa ~ lcavol + lweight + age + lbph + svi, data=prostate) %>% summary()
+```
+
+We see that the selection using the BIC is much more conservative than the AIC.
+
+
+## Variable selection and hypothesis testing
+
+We are often interested in combining variable selection and hypothesis
+testing. For example, we may consider selecting a smaller model by
+using some variable selection strategy, and then determine if a given
+variable in the model is of interest. However, this may undermine
+our p-value and give us too optimistic result (i.e. we may reject the null
+more often than necessary).
+
+This is a subtle phenomenon often called post-selection inference. We will
+try to explore it through a small simulation.
+
+```{r}
+selected_and_pvalue = function (d) {
+  full = lm(y ~ x1 + x2 + x3, data=d)
+  reduced = lm(y ~ x1 + x2, data=d)
+  
+  tibble(selected = AIC(full) < AIC(reduced), pvalue = summary(full)$coefficients[4,4])
+}
+```
+
+
+```{r}
+n = 20
+n_replica = 1000
+lm_postselection = tibble(x1 = rnorm(n * n_replica), x2 = rnorm(n * n_replica),
+       x3 = rnorm(n * n_replica), replica=rep(1:n_replica, rep.int(n, n_replica))) %>%
+  mutate(y = rnorm(n * n_replica, mean = x1 + x2)) %>% 
+  group_by(replica) %>%
+  do(selected_and_pvalue(.))
+```
+
+Now, note that without any selection, the false positive rate is controlled as we expect.
+```{r}
+lm_postselection %>%
+  ungroup() %>%
+  summarise(falsePositive = mean(pvalue < 0.05))
+```
+
+However, if we only include the cases where the model is selected, then the false positive
+rate is no longer controlled at the nominal level.
+```{r}
+lm_postselection %>%
+  ungroup() %>%
+  filter(selected == T) %>%
+  summarise(falsePositive = mean(pvalue < 0.05))
+```
+
