@@ -1,0 +1,75 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(rstan)
+library(ElemStatLearn)
+library(tidyverse)
+library(stringr)
+```
+
+```{r}
+data(prostate)
+prostate
+```
+
+```{r}
+fit.stan = stan(model_code='
+data {
+  int N;
+  real lpsa[N];
+  real lcavol[N];
+  real lbph[N];
+  real age[N];
+  real svi[N];
+}
+
+parameters {
+  real b_lcavol;
+  real b_lbph;
+  real b_age;
+  real b_svi;
+  real alpha;
+  real<lower=0> sigma;
+}
+
+model {
+  b_lcavol ~ normal(0, 100);
+  b_lbph ~ normal(0, 100);
+  b_age ~ normal(0, 100);
+  b_svi ~ normal(0, 100);
+
+  for(i in 1:N) {
+    real pred = alpha + b_lcavol * lcavol[i] + b_lbph * lbph[i] + b_age * age[i] + b_svi * svi[i];
+    lpsa[i] ~ normal(pred, sigma);
+  }
+}
+',
+data=c(list(N = nrow(prostate)), prostate))
+```
+
+```{r}
+fit.stan
+```
+
+```{r}
+ggplot(data=data.frame(rstan::extract(fit.stan, 'b_lcavol'))) + geom_histogram(aes(x = b_lcavol), binwidth=0.02)
+```
+
+We can compute the estimators by taking the mean of the posterior samples. As we have the full
+sample, we may also compute quantities such as the standard error.
+```{r}
+data.frame(rstan::extract(fit.stan)) %>%
+  summarise_all(.funs = list(mean = mean, se = sd)) %>%
+  gather(variable, estimate) %>%
+  mutate(type = str_match(variable, '(?:.*?)_(mean|se)')[,2],
+         variable = str_match(variable, '(.*?)(?:_mean|_se)')[,2]) %>%
+  spread(type, estimate)
+```
+
+```{r}
+lm(lpsa ~ lcavol + lweight + age + lbph + svi, data=prostate) %>% summary()
+```
+

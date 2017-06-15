@@ -1,0 +1,218 @@
+---
+title: "Linear models for prediction"
+output: html_notebook
+---
+
+
+```{r}
+library(caret)
+library(mgcv)
+library(splines)
+library(tidyverse)
+```
+
+# Linear models for prediction
+
+In addition to being used for estimation, linear models may also
+be used for prediction. In prediction, we are not necessarily interested
+in guessing the coefficients for each variable. Rather, we wish to predict
+a new outcome for each new case.
+
+
+## Example: diamonds
+
+Let us consider designing a linear model for prediction on the diamonds dataset.
+In order to evaluate the performance of different models at the end, we will first
+split the dataset into a testing and training set.
+```{r}
+trainIndex = caret::createDataPartition(diamonds$carat, p=.85, list=F, times=1)
+diamonds.train = diamonds[trainIndex,]
+diamonds.test = diamonds[-trainIndex,]
+```
+
+
+First, let us consider a simple linear regression based on the weight of the diamond.
+
+```{r}
+fit.lm = lm(price ~ carat, data=diamonds.train)
+fit.lm
+```
+
+We can compute the predicted values by using the `predict` function. By default,
+it returns the prediction for the observations we used to fit the model. This
+is the training error.
+```{r}
+sqrt(mean((predict(fit.lm) - diamonds.train$price)^2))
+```
+
+Now, let us compute the testing error. We may predict for the new data by using
+the predict function and passing in the new data we wish to form predictions for.
+```{r}
+sqrt(mean((predict(fit.lm, newdata=diamonds.test) - diamonds.test$price)^2))
+```
+
+As our current model is very simple, there is very little risk of overfitting, and
+indeed we see that the testing error is very close to the training error.
+
+However, let us consider a more complex model.
+```{r}
+fit.lm_full = lm(price ~ ., data=diamonds.train)
+fit.lm_full
+```
+
+With this more complex model, we reduced the errors by 1/3.
+```{r}
+sqrt(mean((predict(fit.lm_full) - diamonds.train$price)^2))
+```
+
+What about the testing error? We also nearly cut in half. As we have a lot of
+data (nearly 45,000 observations), we can afford to fit complex models.
+```{r}
+sqrt(mean((predict(fit.lm_full, newdata=diamonds.test) - diamonds.test$price)^2))
+```
+
+In this case, as we have a large amount of data, we may fit much more complex models.
+For example, in the model below, we are fitting about 200 coefficients! This make the
+model somewhat challenging to interpret, but we can see that the predictive performance
+has greatly improved.
+```{r}
+fit.lm_bs_full = lm(price ~ (clarity + color) * bs(carat, df=12, Boundary.knots = c(0, 7)) +
+                      cut + depth + table + x + y + z,
+                    data=diamonds.train)
+length(fit.lm_bs_full$coefficients)
+```
+
+
+```{r}
+sqrt(mean((predict(fit.lm_bs_full) - diamonds.train$price)^2))
+```
+
+```{r}
+sqrt(mean((predict(fit.lm_bs_full, newdata=diamonds.test) - diamonds.test$price)^2))
+```
+
+In general, more complex models are essential to obtain good prediction results. Prediction
+is often faced with a tension of having either easily intepretable models or accurate models.
+
+We must also be careful of no selecting models that are too complex. For example, consider
+the following model that has a number of spurious interactions.
+
+```{r}
+fit.lm_bs_overfit = lm(price ~ (clarity + color) * bs(carat, df=12, Boundary.knots = c(0, 7)) +
+                      cut + depth + table + 
+                      bs(x, df=4, Boundary.knots = c(0, 11)) * 
+                      bs(y, df=4, Boundary.knots = c(0, 60)) *
+                      bs(z, df=4, Boundary.knots = c(0, 32)), data=diamonds.train)
+length(fit.lm_bs_overfit$coefficients)
+```
+
+We see a slight reduction in model training error, but a sharp increase in model testing error.
+
+```{r}
+sqrt(mean((predict(fit.lm_bs_overfit) - diamonds.train$price)^2))
+```
+
+```{r}
+sqrt(mean((predict(fit.lm_bs_overfit, newdata=diamonds.test) - diamonds.test$price)^2))
+```
+
+## Model selection for prediction
+Similarly to estimation, it is thus also important to select the best model for prediction. As before
+one possibility is to use some information criterion, such as the AIC.
+
+```{r}
+AIC(fit.lm_bs_overfit)
+AIC(fit.lm_bs_full)
+AIC(fit.lm_full)
+AIC(fit.lm)
+```
+
+However, we see in this case that the AIC is in fact incorrect, and selects a model that is
+too complex, and obtains bad testing performance.
+
+However, the advantage of prediction is that we can "check" our result, that is, compute the
+testing error. We could thus select the model that has the worst testing error. On the other
+hand, this requires us to split the data into a training and testing set, which may be undesirable,
+as we reduce the amount of data available in this case.
+
+To alleviate this problem, we may do cross-validation. Cross-validation repeatedly divides the data
+into a testing and training set, and allows to reuse the data.
+
+```{r}
+train_control = caret::trainControl(method='cv')
+train.lm_full = caret::train(price ~ ., data=diamonds.train, trControl=train_control, method='lm')
+```
+
+In particular, this allows us to estimate the RMSE (root mean-square error) of the model.
+```{r}
+train.lm_full
+```
+
+```{r}
+train.lm_bs_full = caret::train(price ~ (clarity + color) * bs(carat, df=12, Boundary.knots = c(0, 7)) +
+                      cut + depth + table + 
+                      x + y + z, data=diamonds.train, trControl=train_control,
+                         method='lm')
+```
+
+```{r}
+train.lm_bs_full
+```
+
+```{r}
+train.lm_bs_overfit = caret::train(price ~ (clarity + color) * bs(carat, df=12, Boundary.knots = c(0, 7)) +
+                      cut + depth + table + 
+                      bs(x, df=4, Boundary.knots = c(0, 11)) * 
+                      bs(y, df=4, Boundary.knots = c(0, 60)) *
+                      bs(z, df=4, Boundary.knots = c(0, 32)), data=diamonds.train, trControl=train_control,
+                         method='lm')
+```
+
+```{r}
+train.lm_bs_overfit
+```
+
+The cross-validation is a very general techinque for selecting between models when predictive
+performance is of interest. It allows us to estimate testing error with minimal loss in the
+amount of data that we dispose off.
+
+## Uncertainty in prediction
+
+To characterise the uncertainty in the prediction of a linear model, R aggregates the
+uncertainty of our estimate and the natural randomness of the process to produce
+a prediction interval. To do so, we may simply ask R to produce prediction intervals
+for the samples.
+
+```{r}
+predict(fit.lm_bs_full, interval='prediction') %>%
+  as.data.frame()
+```
+
+We see that the prediction interval includes the right proportion of all
+the observations.
+
+```{r}
+predict(fit.lm_bs_full, interval='prediction') %>%
+  as.data.frame() %>%
+  mutate(actual = diamonds.train$price) %>%
+  summarise(in_predicted = mean(lwr < actual & actual < upr))
+```
+
+We can check that this also holds for the test data.
+```{r}
+predict(fit.lm_bs_full, newdata=diamonds.test, interval='prediction') %>%
+  as.data.frame() %>%
+  mutate(actual = diamonds.test$price) %>%
+  summarise(in_predicted = mean(lwr < actual & actual < upr))
+```
+
+Note that this is different from confidence intervals. The confidence interval
+characterises where the average value may be, rather than where the actual value
+may be. It thus includes a much lower percentage of the actual values.
+```{r}
+predict(fit.lm_bs_full, interval='confidence') %>%
+  as.data.frame() %>%
+  mutate(actual = diamonds.train$price) %>%
+  summarise(in_predicted = mean(lwr < actual & actual < upr))
+```
+

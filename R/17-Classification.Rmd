@@ -1,0 +1,146 @@
+---
+title: "Classification"
+output: html_notebook
+---
+
+```{r}
+library(MASS)
+library(tidyverse)
+library(naivebayes)
+library(glmnetUtils)
+library(ISLR)
+```
+
+
+# Classification
+
+Classification is one of the most important tasks in prediction.
+In this workbook, we review some of the more classical prediction methods.
+
+## Linear discriminant analysis
+
+```{r}
+data(iris)
+iris
+trainIndex = caret::createDataPartition(iris$Species, p=0.8, list=F)
+iris.train = iris[trainIndex,]
+iris.test = iris[-trainIndex,]
+```
+
+We will attempt to use LDA to categorise the iris species from measurements.
+```{r}
+ggplot(data=iris) +
+  geom_point(aes(x = Sepal.Length, y = Sepal.Width, colour=Species))
+```
+
+```{r}
+fit.lda = lda(Species ~ ., data=iris.train)
+fit.lda
+```
+
+The lda fit returns prediction for both the class and the posterior probabilities.
+```{r}
+predict(fit.lda) %>% as.data.frame()
+```
+
+It also returns the value of the two discriminants used to differentiate between
+the classes (as there are three classes, we only have two discriminants).
+```{r}
+ggplot(data=predict(fit.lda) %>% as.data.frame()) +
+  geom_point(aes(x = x.LD1, y = x.LD2, color=class))
+```
+
+Let us test the performance on a test dataset. The performance is extremely good on this
+simple example.
+```{r}
+mean(predict(fit.lda, newdata=iris.test)$class == iris.test$Species)
+```
+
+We may be interested in which Species are the most often misclassified.
+
+```{r}
+caret::confusionMatrix(predict(fit.lda, newdata=iris.test)$class, iris.test$Species)
+```
+
+## Logistic regression
+
+Let us consider attempting to predict credit card debt default. We have obtained a simulated
+dataset with an indication of whether the customer defaulted and some information about
+their income, balance, and whether they are a student.
+```{r}
+data(Default)
+Default
+trainIndex = caret::createDataPartition(Default$default, p=0.8, list=F)
+Default.train = Default[trainIndex,]
+Default.test = Default[-trainIndex,]
+```
+
+```{r}
+fit.glm = glm(default ~ student + balance + income, data=Default.train, family=binomial())
+```
+
+Let us view the predicted probability for each 
+```{r}
+ggplot() + geom_histogram(aes(x = predict(fit.glm, type='response')), binwidth=0.05)
+```
+Let us generate some predictions. We can arbitrarily choose a cut-off at 0.5.
+We see an accuracy of 97\%. Is this good?
+```{r}
+mean((predict(fit.glm, type='response') > 0.5) == (Default.train$default == 'Yes'))
+```
+
+If instead we predicted only no default for everyone, then we would get an accuracy
+of 96\%, which is nearly as good! In fact, since it is very rare that anyone defaults,
+accuracy is not the best measure.
+```{r}
+mean(FALSE == (Default.train$default == 'Yes'))
+```
+
+```{r}
+confusionMatrix((predict(fit.glm, type='response') > 0.5), (Default.train$default == 'Yes'),
+                positive='TRUE', mode='prec_recall')
+```
+
+```{r}
+prec_recall = tibble(p = seq(0.05, 0.95, 0.05)) %>%
+  rowwise() %>%
+  do(confusionMatrix((predict(fit.glm, type='response') > .$p), (Default.train$default == 'Yes'),
+                positive='TRUE', mode='prec_recall')$byClass %>% t() %>% as.data.frame())
+
+prec_recall
+```
+
+```{r}
+ggplot(data=prec_recall) + geom_line(aes(x = Precision, y = Recall))
+```
+
+
+## Naive Bayes
+
+This dataset records 16 key votes in the U.S. house of representatives.
+Each member is recorded with their party and how they voted. We will use
+this information to determine the party affiliation from the voting pattern.
+```{r}
+housevotes = read_csv('../data/house-votes-84.csv', col_names = c('party',
+                                                                  paste0('vote', 1:16)),
+                      na='?') %>% mutate_all(.funs = factor)
+
+
+trainIndex = caret::createDataPartition(housevotes$party, p = 0.8, list=F)
+housevotes.train = housevotes[trainIndex,]
+housevotes.test = housevotes[-trainIndex,]
+```
+
+```{r}
+nb = naive_bayes(party ~ ., data=housevotes.train)
+nb
+```
+
+```{r}
+mean(predict(nb, newdata=housevotes.test) == housevotes.test$party)
+```
+
+The Naive Bayes strategy is particularly adapted in this case, as it is fairly tolerant
+of missing data, and due to not every representative voting in every case, this dataset
+has some amount of missingness.
+
