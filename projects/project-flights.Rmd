@@ -1,0 +1,100 @@
+---
+title: "Project - NYC flights data"
+output: html_notebook
+---
+
+# Project: NYC flights data
+
+This projects aim is to better understand flight delays at the nyc airports.
+You will find the data in the `nycflights13` package, remember to install
+it.
+
+```{r}
+library(tidyverse)
+library(nycflights13)
+library(lubridate)
+```
+
+We will be using two datasets, one called `flights` with the flight information, and
+one called `weather` with the weather information. You can obtain information about
+the data collected by calling the R help for these datasets
+
+```{r}
+help(flights)
+help(weather)
+```
+
+We can join these datasets into a single dataset containing the flights and the weather at
+the time of the flight. We have also removed an outlying observation for the weather
+where the windspeed was recorded above 1000mph, and removed missing observations for the
+flight departure delay. We have also set delays of more than 200 minutes to 200 minutes.
+
+```{r}
+weather = weather %>% filter(wind_speed < 1000) %>% na.omit()
+flights = flights %>% na.omit() %>% mutate(dep_delay = pmin(dep_delay, 200))
+all_flights = inner_join(flights, weather %>% select(-year, -month, -day, -hour, - wind_gust), by=c('origin','time_hour'))
+```
+
+Although there are 300k observations in the original dataset, we will only use 30k, a tenth of the size
+of the original data, so as to avoid memory problems on the computers. We will pretend that the rest
+of the data was never collected.
+
+```{r}
+all_flights = all_flights %>%
+  sample_n(10000) %>%
+  mutate(weekend = wday(time_hour) %in% c(1, 7))
+```
+
+
+## First step: visualizing the data
+
+We first wish to investigate the departure delays, and how they depend on the circumstances
+of the departure
+- the distribution of the departure delays (both in aggregate and per airport)
+- how the wind speed affects the departure delay
+- how the rain affects the departure delay
+- how the month of the year affects the departure delay
+- how the hour of the day affects the departure delay
+
+
+In addition, compute the proportion of flights that were later than 5, 10 and 30 minutes
+for each hour of the day. When are you most likely to encounter flights that are running late?
+
+## Linear regression
+
+I have included a fit of all the possible relevant variables for our model below.
+```{r}
+fit.full = lm(dep_delay ~ wind_speed + precip + month + day + hour + origin + air_time + visib + pressure + humid + dewp + distance + weekend, data=all_flights)
+
+fit.full %>% summary()
+```
+
+From the fit above, answer the following questions:
+- which of the airports has the most delays?
+- are there more delays on weekdays or weekends?
+- are there more delays towards the start or the end of the day?
+
+
+## Model selection
+
+In the model above, we have included all possible variables. Suppose
+instead that we wish to obtain a model that only captured the important
+effect. Use best subset selection along with the BIC to select the best model.
+(Note: you may need to increase `nvmax` when running `regsubsets`, check the help).
+
+Indicate which model you have selected, and produce a fit for the model.
+
+
+## Logistic regression
+
+Instead of estimating the average delay, we could also consider estimating the
+probability of facing a delay of more than 5 minutes, or 15 minutes.
+
+Fit a logistic glm for the probability of the flight being more than 5
+minutes late, and another logistic glm for the probability of the flight being
+more than 15 minutes late, using the same variables that you have selected
+in the previous section. (Hint: you may want to create a new dataframe and add
+the desired response variables).
+
+Are the models in line with the interpretation of your linear model from
+the previous section?

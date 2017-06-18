@@ -1,0 +1,135 @@
+---
+title: "Better understanding model selection"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(glmnetUtils)
+```
+
+
+# Better understanding model selection
+
+This project aims to better understand the different model selection criteria as
+well as penalized regression to select models. To do this project, you will
+also need to install the `glmnet` and `glmnetUtils` package.
+
+## AIC vs BIC
+
+### Variable selection
+
+We will first consider some simulations to understand how AIC and BIC behave.
+I have included below a simulation that computes the AIC for a full and reduced
+model, when there are 20 observations, where we have generated the true model
+as $E y = x_1 + x_2$.
+
+```{r}
+# Simulates a model selection experiment assuming
+# that we have n observations.
+simulate_selection_aic = function(n) {
+  n_replica = 500
+  tibble(
+      x1 = rnorm(n * n_replica),
+      x2 = rnorm(n * n_replica),
+      x3 = rnorm(n * n_replica),
+      replica=rep(1:n_replica, rep.int(n, n_replica))) %>%
+    mutate(y = rnorm(n * n_replica, mean = x1 + x2)) %>% 
+    group_by(replica) %>%
+    summarise(aic.full = AIC(lm(y ~ x1 + x2 + x3)), aic.reduced = AIC(lm(y ~ x1 + x2)))
+}
+```
+
+```{r}
+sim.20 = simulate_selection_aic(20)
+```
+
+
+What is the probability of selecting the correct model (i.e. the reduced one)?
+
+We now wish to investigate how that evolves as the number of observation increases.
+Repeat the simulation and result for some number of observations of your choosing
+from 20 to 1000. Do you think that AIC would be always correct as n goes to infinity?
+
+Now consider instead using BIC to select the model. Do the same simulation but use
+BIC for selecting the model (write a new function like the existing one).
+Do you think AIC would be always correct as n goes to infinity?
+
+
+### Prediction performance
+
+Now, let us consider an alternative scenario under which the true model is not inside our model.
+We generate data from the model below, which has 3 variables, and the response y is given by
+\[
+  E y = x_1 + x_2 + 0.5 x_3
+\]
+if $x_3 > 0$, but is given by
+\[
+  E y = x_1 + x_2 - 0.2 x_3
+\]
+if $x_3 < 0$.
+
+Note that the true model is not part of the models we are considering.
+
+```{r}
+# Simulates a model selection experiment
+# assuming that we have n observations,
+# and with the true model not being under
+# consideration.
+simulate_prediction = function(n) {
+  n_replica = 500
+  tibble(
+      x1 = rnorm(n * n_replica),
+      x2 = rnorm(n * n_replica),
+      x3 = rnorm(n * n_replica),
+      replica=rep(1:n_replica, rep.int(n, n_replica))) %>%
+    mutate(y = rnorm(n * n_replica, mean = x1 + x2 + 0.5 * pmax(x3, 0) - 0.3 * pmin(x3, 0))) %>% 
+    group_by(replica) %>%
+    summarise(aic.full = AIC(lm(y ~ x1 + x2 + x3)), aic.reduced = AIC(lm(y ~ x1 + x2)))
+}
+```
+
+In this context, we may consider the full model to be the "correct" model, as it is the
+model that most closely approximates the truth.
+
+Compute probabilities of *not* selecting the correct model for both the BIC and the AIC
+for values of n in 100, 200, ..., 1000. Plot the logarithm of these values on the same
+plot. Does AIC or BIC reduce our error faster as n grows?
+
+## Lasso regression
+
+Instead of using AIC/BIC, let us consider a lasso-penalized regression instead.
+The value of the tuning parameter will be chosen by cross-validation.
+
+We first consider the selection problem similar to the first one we investigated,
+with the true model being specified as $E y = x_1 + x_2$.
+
+```{r}
+# Simulate the selection problem using the lasso
+simulate_selection_lasso = function(n) {
+  n_replica = 200
+  tibble(
+      x1 = rnorm(n * n_replica),
+      x2 = rnorm(n * n_replica),
+      x3 = rnorm(n * n_replica),
+      replica=rep(1:n_replica, rep.int(n, n_replica))) %>%
+    mutate(y = rnorm(n * n_replica, mean = x1 + x2)) %>% 
+    group_by(replica) %>%
+    do(coef(cv.glmnet(y ~ x1 + x2 + x3, data=.), s='lambda.1se') %>%
+         as.matrix() %>%
+         as.data.frame() %>%
+         rownames_to_column('term')) %>%
+    ungroup() %>%
+    spread(term, `1`)
+}
+```
+
+For a sample of size 50, compute the probability of correctly identifying the
+coefficient for x3 as zero when using `lambda='lambda.1se'. Compare this to
+the same probability when using BIC. Which is better?
+
+Now, let us determine which is better for detecting true signals. Modify a copy
+of the function to generate $y$ with mean $x_1 + x_2 + 0.2 * x_3$ instead. Compute
+the probability of selecting the correct model (now the full model) using the lasso
+regression. Also modify a similar function to compute the probability that the BIC
+correctly selects the true model. Which is better?
