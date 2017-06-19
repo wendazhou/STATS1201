@@ -1,0 +1,186 @@
+---
+title: "Tree based methods"
+output: html_notebook
+---
+
+# Tree based methods
+
+Tree based methods provide a flexible and performant tool to do prediction
+(both regression and classification) that is widely applicable to most types
+of data.
+
+```{r}
+library(ranger)
+library(party)
+library(ElemStatLearn)
+library(caret)
+library(splines)
+library(tidyverse)
+```
+
+## Classification trees
+
+A classification tree is a list of conditional decisions that partition the dataset
+according to independent variables. For example, let us consider a classification
+tree for the iris dataset.
+
+```{r}
+iris.tree = ctree(Species ~ ., data=iris)
+iris.tree
+```
+
+We can visualize the fitted tree by plotting the tree object. We see the variable
+that is branched upon, and the value of the branch.
+```{r}
+plot(iris.tree)
+```
+
+The nodes at the end of the tree are called leaf nodes, and characterise the distribution of the
+observations that follow in that node.
+
+## Regression tree
+
+Similarly, we can consider a regression tree. Instead of having class distributions being represented
+by leaf nodes, the leaf node representns the final value.
+```{r}
+data(prostate)
+prostate.train = prostate %>% filter(train) %>% select(-train)
+prostate.test = prostate %>% filter(!train) %>% select(-train)
+```
+
+```{r}
+prostate.tree = ctree(lpsa ~ ., data=prostate)
+prostate.tree
+```
+
+```{r}
+plot(prostate.tree, type='simple')
+```
+
+## How is a split chosen?
+
+The splits are chosen by greedily choosing, at each step, the split that
+minimizes the disparity in the two subsets produced. In the example below,
+we would like to detect that the best place to split is in the middle.
+
+```{r}
+greedy.data = tibble(x = runif(100, -5 , 5)) %>%
+  mutate(y = rnorm(100, mean=2*sign(x)))
+
+ggplot(data=greedy.data) +
+  geom_point(aes(x = x, y = y)) +
+  geom_segment(x = -5, xend = 0, y = -2, yend=-2) +
+  geom_segment(x = 0, xend = 5, y = 2, yend=2)
+```
+
+The disparity for a split at a location $x$ can be computed as the sum of the two variance
+of the subgroups. We then attempt to find the best split location that minimizes this
+within-group disparity of the data.
+
+```{r}
+disparity = function(data, split) {
+  data %>%
+    group_by(x <= split) %>%
+    summarise(dis = var(y)) %>%
+    summarise(dis = sum(dis))
+}
+
+# compute disparity at a possible set of locations
+dis.value = tibble(split = seq(-4.5, 4.5, 0.1)) %>%
+  group_by(split) %>%
+  do(disparity(greedy.data, .$split))
+```
+
+```{r}
+ggplot() +
+  geom_point(aes(x = x, y = y),
+             data=greedy.data %>% mutate(panel = 'data')) +
+  geom_line(aes(x = split, y = dis),
+            data=dis.value %>% mutate(panel = 'disparity')) +
+  facet_grid(panel ~ ., scale='free') +
+  ggsave('tree-disparity.pdf', width=8, height=5)
+```
+
+In this case, we see that the split is minimized at around 0. We can then compute the
+fitted value for each part of the split by taking the mean in each group.
+```{r}
+dis.value %>% ungroup() %>% top_n(1, -dis)
+```
+
+
+```{r}
+ggplot(data=greedy.data) +
+  geom_point(aes(x = x, y = y)) +
+  geom_smooth(aes(x = x, y = y, group=x > 0), method = 'lm', formula = y ~ 1)
+```
+
+In general, there may be several variables $x_1, x_2, x_3$  that we have to choose from.
+The tree simply eveluates all posibble variables and the best splits, then chooses
+the split that is deemed best among all the variables.
+
+## Prediction in regression trees
+
+Let us apply our regression tree to the diamonds dataset, and compare to the good linear
+model we had obtain when using linear regression.
+
+```{r}
+trainIndex = caret::createDataPartition(diamonds$carat, p=.85, list=F, times=1)
+diamonds.train = diamonds[trainIndex,]
+diamonds.test = diamonds[-trainIndex,]
+```
+
+We fit as before our linear model. As this linear model is complex, its interpretability
+is somewhat limited.
+
+```{r}
+diamonds.lm = lm(price ~ (clarity + color) * bs(carat, df=12, Boundary.knots = c(0, 7)) +
+                      cut + depth + table + x + y + z,
+                    data=diamonds.train)
+```
+
+```{r}
+sqrt(mean((predict(diamonds.lm, diamonds.test) - diamonds.test$price)^2))
+```
+
+
+We can also fit our regression tree to predict the price. Unlike in the case of the linear
+model, we do not need to specify any type of design. Regression trees can fit non-linear
+and interaction effects without additional specification. We see that in this case, the
+tree based technique does a bit better than the linear model, although it is significantly
+more computationally intensive. However, we did not have to put in any design to
+make it work.
+
+```{r}
+# This is a big tree, takes about 1.5Gb of ram in memory,
+# About 3000 nodes, also quite difficult to interpret.
+diamonds.tree = ctree(price ~ ., data=diamonds.train)
+```
+
+```{r}
+sqrt(mean((predict(diamonds.tree, diamonds.test) - diamonds.test$price)^2))
+```
+
+# Ensemble methods
+
+## Random forests
+
+Although decision trees display good performance and properties, they may still be sometimes too
+rigid. They are easily misled by strong marginal influence and fit an essentially piecewise constant
+function. However, we can improve their performance significantly by not fitting a single tree
+but an ensemble of trees. However, these models are a combination of numerous (500) trees, and
+are difficult to interpret.
+
+```{r}
+diamonds.forest = ranger::ranger(price ~ ., data=diamonds.train)
+```
+
+```{r}
+sqrt(mean((predict(diamonds.forest, diamonds.test)$predictions - diamonds.test$price)^2))
+```
+
+In general, ensembles methods, where we fit several simpler models to random subsets of our data,
+and have them vote on the outcome, tend to outperform the individual predictors substantially.
+For pure predictive performance, ensembles are used from the simplest trees to ensembles of
+neural networks.
+
+
