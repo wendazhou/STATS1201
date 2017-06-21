@@ -1,0 +1,195 @@
+---
+title: "Mixed effects models"
+output: html_notebook
+---
+
+```{r}
+library(lme4)
+library(tidyverse)
+```
+
+
+# Mixed effects models
+
+Mixed effect models can be useful when analyzing data where the observations
+follow some natural grouping. This for example arises naturally in datasets that arise
+from longitudinal data, where repeated observations are made on the same individual.
+
+## First example: ANOVA
+
+```{r}
+data.cars = read_table('../data/newcar-rate.dat', col_types = 'dc')
+data.cars
+```
+
+We wish to understand whether the interest rate to finance a new car is different from one city to another.
+This is an ANOVA test. To perform such a test, we should compare the total variance of the data to
+the variance within each city. If knowing the city explains a large part of the variance, we may
+be tempted to claim that each city has a different mean.
+
+```{r}
+ggplot(data=data.cars) +
+  geom_boxplot(aes(x = City, y = Rate))
+```
+
+We could do such a computation manually, by computing the residual and total sum
+of squares.
+```{r}
+cars.ss = bind_cols(
+data.cars %>%
+  group_by(City) %>%
+  summarise(residual.ss = sum((Rate - mean(Rate))^2)) %>%
+  summarise(residual.ss = sum(residual.ss))
+,
+data.cars %>%
+  summarise(total.ss = sum((Rate - mean(Rate))^2)))
+
+cars.ss = cars.ss %>% mutate(city.ss = total.ss - residual.ss)
+cars.ss
+```
+
+We see that the residual sum of squares (by city) is somewhat smaller than
+the total sum of squares, hence we may believe that the city explains part of
+the variation, and so the average value between each city is different.
+
+To guarantee that this is not due to chance, we may compare to the F statistic,
+which compares the between group variability and the within group variability.
+```{r}
+f.stat = with(cars.ss, (city.ss / 5) / (residual.ss / 48))
+f.stat
+pf(f.stat, 5, 48, lower.tail=F)
+```
+
+We can perform this test simply using the `aov` function, that
+outputs the relevant result.
+```{r}
+aov(Rate ~ City, data=data.cars) %>% summary()
+```
+
+However, notice that the ANOVA test is simply linear regression!
+Indeed, by writing out the linear regression formula for categorical
+variables, we can see that this exactly models this case.
+
+We can see the same F-statistic displayed at the bottom of the
+table.
+```{r}
+lm(Rate ~ City, data=data.cars) %>% summary()
+```
+
+## ANOVA with mixed effects
+
+Now, suppose that we wish to understand not only if the
+average rates were different, but how different they
+might be (on average). That is, what is the likely
+average rate we might encounter in a new city.
+
+The previous analysis does not help much in answering
+that question. However, mixed models can help us
+model this problem.
+
+```{r}
+lmer(Rate ~ (1 | City), data=data.cars) %>% summary()
+```
+
+Here, we see that the standard deviation for
+the city coefficient is estimated to be about 0.45,
+and the intercept is estimated to be 13, so
+we might expect a new city to have an
+average interest rate of about 13, give or take
+on the order of 0.45.
+
+## Example: sleep deprivation study
+
+```{r}
+data(sleepstudy)
+sleepstudy
+```
+
+```{r}
+ggplot(data=sleepstudy) +
+  geom_point(aes(x = Days, y = Reaction)) +
+  geom_smooth(aes(x = Days, y = Reaction), method='lm', se=F) +
+  facet_wrap(~Subject)
+```
+
+We see that each subject has a different rate at which their reactiom time increases, and
+also have different base reaction times.
+
+As the slope is different for each subject, we should attempt to use an interaction term
+to model the regression. This gives us a separate regression line for each coefficient,
+and allows us to understand which subjects have their reaction time degrade more
+quickly.
+```{r}
+lm(Reaction ~ Days * Subject, data=sleepstudy) %>% summary()
+```
+
+However, we may not only be interested in our subjects present during the
+experiment, but generalize this finding to the general population. To do
+so, we need to be able to answer questions such as:
+- for an average person, does the reaction time increase or decrease as
+they get more sleep deprived?
+- how much variation do we expect from person to person in their base
+reaction time? how much variation do we expect from person to person
+in how quickly their reaction time increases due to sleep deprivation?
+
+To answer such a question, we can use a mixed effects models.
+```{r}
+fit.lme = lmer(Reaction ~ Days + (Days | Subject), sleepstudy)
+fit.lme %>% summary()
+```
+
+Here, we have included a random slope of Days based on the subject, that is,
+every different subject is allowed to have a different slope for the number
+of days. We see that the fixed effect for days (that is, the average for
+the group), is around 10, so we expect the reaction time to increase by
+around 10ms for each day of sleep deprivation. We also see that the Standard
+Deviation of this slope is 5.92, so for a typical person their increase
+might deviate by about that amount.
+
+## Example: student math performance
+
+```{r}
+data.math = read_csv('../data/classroom.csv') %>%
+  mutate(sex = as.factor(sex),
+         minority = as.factor(minority))
+```
+
+```{r}
+data.math
+```
+
+This data has three levels: school level, classroom level and student level. All the levels
+are nested within each other.
+
+Let us first look at the variation between schools and between classes.
+We can fit a random effect model on the class nested inside the school.
+```{r}
+lmer(mathgain ~ 1 + (1 | schoolid / classid), data=data.math)
+```
+
+We may then consider the effect of the student's gender and minority status
+on how much they gain, while still accounting for the fact that the gain
+migh tbe different accross each school. We will also control for the student's
+starting score (mathkind).
+```{r}
+lmer(mathgain ~ sex + minority + mathkind + (1 | schoolid / classid), data=data.math) %>%
+  summary()
+```
+
+We see that compared to a standard linear model without the school or
+class id, we are somewhat more confident of our estimate as we are
+able to explain away some of the variation due to school and class
+variations.
+```{r}
+lm(mathgain ~ sex + minority + mathkind, data=data.math) %>% summary()
+```
+
+On the other hand, attempting to explicitly model the class id
+in a fixed effect setting does not make much sense either,
+as we are not interested in the particular effect of a given
+class. Due to the large number of effects we have to estimate,
+this also makes our estimation more uncertain.
+```{r}
+lm(mathgain ~ sex + minority + mathkind + factor(classid), data=data.math) %>% summary()
+```
+

@@ -1,0 +1,174 @@
+---
+title: "Time Series"
+output: html_notebook
+---
+
+# Time Series
+
+
+```{r}
+library(zoo)
+library(lubridate)
+library(forecast)
+library(bsts)
+library(forcats)
+library(tidyverse)
+```
+
+## Stationarity
+
+Let us first consider the problem of stationarity. Most of our stastical intuition only applies
+to stationary series, and we should attempt to make series stationary before doing any stastical
+analysis.
+
+Indeed, strongly non-stationary data can easily mislead us due to the correlation they have
+with time.
+
+```{r}
+n = 100
+set.seed(1)
+data.ts = tibble(t = 1:n, x1 = rnorm(n), x2 = rnorm(n)) %>%
+  mutate(ix1 = cumsum(x1), ix2 = cumsum(x2))
+
+data.ts
+```
+
+```{r}
+ggplot(data=data.ts %>%
+         select(-x1, -x2) %>%
+         gather(serie, value, -t)) +
+  geom_line(aes(x = t, y = value, colour=serie))
+```
+
+```{r}
+with(data.ts, cor(ix1, ix2))
+```
+
+```{r}
+n_replica = 1000
+tibble(x1 = rnorm(n * n_replica),
+       x2 = rnorm(n * n_replica),
+       replica = rep(1:n_replica, rep.int(n, n_replica))) %>%
+  group_by(replica) %>%
+  mutate(ix1 = cumsum(x1), ix2 = cumsum(x2)) %>%
+  summarise(corr.integrated = abs(cor(ix1, ix2)), corr.stationary = abs(cor(x1, x2))) %>%
+  summary()
+```
+
+## Autocorellation and partial autocorellation
+
+Often useful to measure how correlated the process is with its past.
+
+```{r}
+data.arima = arima.sim(list(order=c(2,0,0), ar=c(0.5, 0.4), ma=c()), 200)
+
+tibble(t = 1:length(data.arima), y = data.arima) %>%
+  ggplot() +
+  geom_line(aes(x = t, y = y))
+```
+
+```{r}
+acf(data.arima)
+pacf(data.arima)
+```
+
+
+## Auto-regressive and moving average models
+
+Auto-regressive models (often written AR(p)), and moving average models (often written MA(q)),
+are some of the most common models used for time series. They can be combined into the
+ARIMA (auto-regressive integrated moving average) models, which are commonly used
+general time series models.
+
+These are adequate to fit most time series.
+
+Let us consider modelling the number of international airline
+passengers between 1949 and 1960. We see both a seasonal component
+(on a yearly basis) and an increasing trend as air travel becomes
+more popular.
+
+```{r}
+data(AirPassengers)
+
+passengers.data = tibble(passengers = AirPassengers,
+                         date = as.Date(time(AirPassengers)))
+
+ggplot(data=passengers.data) +
+  geom_line(aes(x = date, y = AirPassengers)) +
+  scale_y_log10()
+```
+
+Let us predict the year 1960 from the previous years.
+```{r}
+AirPassengers.train = window(AirPassengers, end=c(1959,12))
+```
+
+The `auto.arima` function automatically selects and fits a model for us.
+In this case, it has fitted a (0, 1, 1) model with a (0, 1, 1) seasonal
+trend with a period of 12 (i.e. yearly).
+
+```{r}
+fit.arima = auto.arima(log(AirPassengers.train))
+fit.arima
+```
+
+```{r}
+passengers.pred = passengers.data %>%
+  mutate(fitted = exp(c(fitted(fit.arima), predict(fit.arima, 12)$pred))) %>%
+  gather(type, value, -date)
+
+ggplot(data=passengers.pred) +
+  geom_line(aes(x = date, y = value, colour=type)) +
+  geom_vline(xintercept = as.numeric(as.Date('1959-12-01')), linetype=2) +
+  scale_y_log10()
+```
+
+## Structure models
+
+Another approach inspired by Bayesian method consists of writing the
+time series in several structures that we specify, and estimate
+them together. For example, in the above data, we can identify
+on principle a long term trend, and a seasonal effect.
+
+
+```{r}
+y = log(AirPassengers.train)
+ss = AddLocalLinearTrend(y = y)
+ss = AddSeasonal(ss, y = y, nseasons = 12)
+
+fit.bsts = bsts(y, ss, niter=500, ping = 0)
+```
+
+```{r}
+pred.bsts = predict(fit.bsts, horizon=12)
+```
+
+```{r}
+passengers.pred.bsts = passengers.data %>%
+  mutate(fitted = exp(c(y + colMeans(fit.bsts$one.step.prediction.errors), pred.bsts$mean))) %>%
+  gather(type, value, -date)
+
+ggplot(data=passengers.pred.bsts) +
+  geom_line(aes(x = date, y = value, colour=type)) +
+  geom_vline(xintercept = as.numeric(as.Date('1959-12-01')), linetype=2) +
+  scale_y_log10()
+```
+
+However, this also allows us to extract the individual components we
+specified, and visualize and interpret the individual components.
+
+For example, let us visualize the trend and seasonal components.
+
+```{r}
+fit.components = t(colMeans(fit.bsts$state.contributions)) %>%
+  as.data.frame() %>%
+  mutate(date = as.Date(time(AirPassengers.train))) %>%
+  mutate(residual = colMeans(fit.bsts$one.step.prediction.errors)) %>%
+  gather(component, value, -date)
+
+ggplot(data=fit.components) +
+  geom_line(aes(x = date, y = value)) +
+  facet_grid(fct_rev(component) ~ ., scale='free')
+```
+
+

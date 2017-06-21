@@ -1,0 +1,103 @@
+---
+title: "Machine learning"
+output: html_notebook
+---
+
+```{r}
+library(nnet)
+library(caret)
+library(kernlab)
+library(tidyverse)
+library(ggforce)
+```
+
+
+# Machine learning
+
+In this workbook, we introduce a few machine learning methods that examplify
+the strategies in use today in the context of predictions.
+
+## $k$-nearest neighbours
+
+Idea: use similar observations to predict the outcome.
+
+```{r}
+n = 100
+data.knn = tibble(x1 = rnorm(n), x2 = rnorm(n)) %>%
+  mutate(y = rnorm(n, mean = x1^2 + x2^2) < 1)
+
+ggplot(data = data.knn) +
+  geom_point(aes(x = x1, y = x2, colour=y)) + 
+  geom_circle(aes(x0 = 0, y0 = 0, r = 1))
+```
+
+
+Let us predict the class using k-nn on a grid of points
+
+```{r}
+fit.knn = knn3(y ~ x1 + x2, data=data.knn, k = 5)
+fit.knn
+```
+
+
+```{r}
+data.knn.test = expand.grid(x1 = seq(-2, 2, 0.2), x2 = seq(-2, 2, 0.2))
+data.knn.pred = data.knn.test %>%
+  mutate(prob.true = predict(fit.knn, .)[,2])
+
+ggplot(data=data.knn.pred) +
+  geom_point(aes(x = x1, y = x2, colour=prob.true > 0.5)) + 
+  geom_circle(aes(x0 = 0, y0 = 0, r = 1))
+```
+
+
+## Support vector machines
+
+Support vector machines are designed as a form of large margin linear classifier.
+However, with the use of the so-called kernel trick 
+
+```{r}
+fit.svm = ksvm(y ~ x1 + x2, data=data.knn, type='C-bsvc')
+fit.svm
+```
+
+```{r}
+data.svm.pred = data.knn.test %>%
+  mutate(y = as.logical(predict(fit.svm, data.knn.test) - 1))
+
+ggplot(data = data.svm.pred) +
+  geom_point(aes(x = x1, y = x2, colour=y)) +
+  geom_circle(aes(x0 = 0, y0 = 0, r = 1))
+```
+
+## Neural networks
+
+Neural networks conceptually stack several linear models on top of each other.
+In this very simple case, we have two linear networks stacked on each other,
+although modern neural networks often use 10's if not 100's of layers.
+
+They are trained by gradient descent. Here, we illustrate a very small
+neural network to solve the classification problem that we have been
+considering.
+
+```{r}
+data.nnet = data.knn %>% mutate(y = factor(y))
+```
+
+
+```{r}
+fit.nnet = nnet(y ~ x1 + x2, size = 5, data=data.nnet, decay=0.01, maxit=500)
+```
+
+
+```{r}
+data.nnet.pred = data.knn.test %>%
+  mutate(y = predict(fit.nnet, data.knn.test, type='class'))
+
+
+ggplot(data = data.nnet.pred) +
+  geom_point(aes(x = x1, y = x2, colour=y)) +
+  geom_circle(aes(x0 = 0, y0 = 0, r = 1))
+```
+
+
