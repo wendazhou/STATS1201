@@ -1,0 +1,214 @@
+---
+title: "Survival analysis"
+output: html_notebook
+---
+
+# Survival analysis
+
+Survival analysis deals with the problem of working with censored data.
+We say data is censored when we only have partial information about the
+value of the information.
+
+```{r}
+library(tidyverse)
+library(survival)
+library(KMsurv)
+library(survminer)
+library(survsim)
+```
+
+## Understanding censoring mechanism
+
+```{r}
+n = 200
+data.sim = tibble(start.date = runif(n, max=100), event.time = rexp(n, 0.04)) %>%
+  mutate(cens.time = pmin(event.time + start.date, 100) - start.date,
+         is.event = start.date + event.time < 100)
+
+data.sim
+```
+
+```{r}
+ggplot(data = data.sim %>% sample_n(20) %>% rownames_to_column('id')) +
+  geom_segment(aes(x = start.date, xend = start.date + event.time, y=id, yend=id, colour=is.event)) +
+  geom_vline(xintercept = 100, linetype=2)
+```
+
+```{r}
+sim.surv = with(data.sim, Surv(cens.time, is.event))
+sim.fit = survfit(sim.surv ~ 1)
+```
+
+```{r}
+ggsurvplot(sim.fit, risk.table = T)
+```
+
+```{r}
+sim.truth = tibble(x = seq(0, 80, 0.5)) %>% mutate(s = pexp(x, 0.04, lower.tail=F))
+
+ggplot(data = bind_rows(truth = sim.truth,
+                        fit = tibble(x = sim.fit$time, s = sim.fit$surv),
+                        .id='type')) +
+  geom_line(aes(x = x, y = s, colour=type))
+```
+
+```{r}
+data.sim.complete = data.sim %>% filter(is.event)
+sim.fit.complete = tibble(x = seq(0, 80, 0.5)) %>%
+  rowwise() %>%
+  mutate(s = mean(x < data.sim.complete$cens.time)) %>%
+  ungroup()
+
+ggplot(data=bind_rows(complete=sim.fit.complete,
+                      truth=sim.truth,
+                      .id='type')) +
+  geom_line(aes(x = x, y = s, colour=type))
+```
+
+## A first example
+
+A common example arises when a study is conducted for survival times
+of cancer. As a patient is diagnosed with a cancer, they enter the study
+and are tracked clinically. However, not all patients enter the study at the
+same time. Hence at every point in time, there are some people whose death
+time is unknown.
+
+```{r}
+data(tongue)
+tongue
+```
+
+We collect the survival data into observed times, and also indicating whether the observation was
+censored. In R, we may collect this into a survival object, where the `+` denotes censoring.
+```{r}
+tongue.surv = Surv(tongue$time, tongue$delta)
+tongue.surv
+```
+
+Let us first simply estimate the survival curve for the data.
+```{r}
+tongue.fit = survfit(tongue.surv ~ 1)
+tongue.fit
+```
+
+```{r}
+ggsurvplot(tongue.fit, risk.table=T)
+```
+
+Now, we may be interested in comparing the survival time of the two different groups.
+We can do so by simply stratifying the two groups.
+
+```{r}
+tongue.fit2 = survfit(tongue.surv ~ factor(type), data=tongue)
+ggsurvplot(tongue.fit2, risk.table=T)
+```
+
+How confident are we that the two groups are different? Can
+use a log-rank test to compare the two groups.
+```{r}
+survdiff(tongue.surv ~ factor(type), data=tongue)
+```
+
+## Cox proportional hazards
+
+We have collected below data on recidivism. 432 male prisones were observed
+for a year after being released, and the week at which they were arrested again
+(or they lapsed out of the study) was recorded, along with some other characteristics.
+
+The following variables are also included:
+- fin: whether the prisoner was given financial aid. Randomized variable (controlled by researcher)
+- wexp: whether the individual had full time work experience
+- mar: whether the individual is married
+- paro: whether the individual was released on parole
+- prio: number of prior convictions
+- educ: education level code
+- emp<n>: whether the individual was employed during week <n>.
+
+```{r}
+data.recidivism = read.table('../data/Rossi.txt')
+data.recidivism
+```
+
+Let us use a cox-proportional hazard model to model the recidivism likelihood as a function
+of time and covariates.
+```{r}
+rec.fit = coxph(Surv(week, arrest) ~ fin + age + race + wexp + mar + paro + prio, data=data.recidivism)
+rec.fit %>% summary()
+```
+
+```{r}
+rec.fit %>% survfit() %>% plot()
+```
+
+## Time dependent data in cox proportional hazard
+
+We may sometimes be interested a variable that changes with time. For example,
+in this case we may be interested in how the employment status affects the probability
+of recidivism.
+
+```{r}
+unfold = function(x) {
+  x = as.data.frame(x)
+  covariates = x %>% select(-starts_with('emp'))
+  emp = x %>% select(starts_with('emp'))
+  
+  covariates = bind_rows(replicate(52, covariates, simplify = F)) %>%
+    rownames_to_column('week.end')
+  
+  covariates %>%
+    mutate(week.end = as.numeric(week.end),
+           week.start = week.end - 1,
+           emp = factor(t(emp), levels=c('no','yes')),
+           arrest = week == week.end & arrest) %>%
+    drop_na()
+}
+```
+
+```{r}
+rec.unfolded = data.recidivism %>%
+  rowwise() %>%
+  do(unfold(.))
+```
+
+
+```{r}
+rec.fitemp = coxph(Surv(week.start, week.end, arrest) ~ fin + age + race + wexp + prio + emp, data=rec.unfolded)
+rec.fitemp %>% summary()
+```
+
+We see that employment is very significant. However, the correlation is difficult to
+interpret. It would be better to lag the employment status by 1.
+
+```{r}
+unfold.lag = function(x, lag.amount = 1) {
+  x = as.data.frame(x)
+  covariates = x %>% select(-starts_with('emp'))
+  emp = x %>% select(starts_with('emp'))
+  
+  covariates = bind_rows(replicate(52, covariates, simplify = F)) %>%
+    rownames_to_column('week.end')
+  
+  covariates %>%
+    mutate(week.end = as.numeric(week.end),
+           week.start = week.end - 1,
+           emp = factor(t(emp), levels=c('no','yes')),
+           arrest = week == week.end & arrest) %>%
+    mutate(emp = lag(emp, lag.amount)) %>%
+    drop_na()
+}
+```
+
+```{r}
+rec.unfolded_lag = data.recidivism %>%
+  rowwise() %>%
+  do(unfold.lag(.))
+```
+
+
+```{r}
+rec.fitemp_lag = coxph(Surv(week.start, week.end, arrest) ~ fin + age + race + wexp + prio + emp,
+                       data=rec.unfolded_lag)
+rec.fitemp_lag %>% summary()
+```
+
+

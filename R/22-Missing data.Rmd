@@ -1,0 +1,233 @@
+---
+title: "Missing data"
+output: html_notebook
+---
+
+# Missing data
+
+```{r}
+library(tidyverse)
+library(mice)
+library(VIM)
+library(lattice)
+```
+
+## Visualizing missingness
+
+When working with missing data, first step is to understand the
+missingness better. Should try to visualize the missingness.
+
+```{r}
+data(nhanes2)
+nhanes2
+```
+
+We can first visualize the missingness pattern by using the agg function.
+We see that not all patterns are present.
+```{r}
+aggr(nhanes2, prop=T, numbers=T)
+```
+
+```{r}
+matrixplot(nhanes2, sortby='age')
+```
+
+Now, we are interested in understanding the cholesterol level from the
+age and bmi of a person. Using `lm` directly performs complete case analysis.
+
+```{r}
+lm(chl ~ age + bmi, data=nhanes2) %>% summary()
+```
+
+## Multiple imputation
+
+Let us guess the missing values using multiple imputations
+```{r}
+nhanes.mi = mice(nhanes2)
+nhanes.mi
+```
+
+We can now produce a complete dataset, and change our linear model to use the
+imputed dataset.
+```{r}
+nhanes.c1 = complete(nhanes.mi, 2)
+nhanes.c1
+```
+
+The regression is now quite different, especially in
+terms of the estimated value for the last age group.
+However, we have a subtle problem now that our estimations
+are overconfident: we did the linear model as if pretending
+to know every single value directly. However, they are only
+guesses, and these guesses have some uncertainty.
+```{r}
+lm(chl ~ age + bmi, data=nhanes.c1) %>% summary()
+```
+
+In order to account for that, we need to do multiple
+imputation. Instead of imputing a single dataset, we
+impute multiple datasets, fit a model for each dataset,
+and average the results. This allows us to measure the
+additional uncertainty induced by multiple imputation.
+```{r}
+with(nhanes.mi, lm(chl ~ age + bmi)) %>% pool() %>% summary()
+```
+
+We see that this produces similar estimates. However,
+the standard error is larger to account for the fact that
+there is some additional randomness due to the imputation
+process.
+
+
+## Mammal sleep data
+
+Let us consider another example, this case on a mammal sleep
+data dataset. This dataset records some information about
+62 mammal species.
+
+```{r}
+data(sleep)
+sleep
+```
+
+We may visualize the missingness pattern in the data
+by looking at what type and which observatinos are
+missing.
+```{r}
+aggr(sleep, prob=T, number=T)
+```
+
+In addition, we may try to look at whether the values seem to affet the missingness.
+Let us look at the missingness in terms of the sleep amount.
+```{r}
+matrixplot(sleep, sortby='Sleep')
+```
+
+For example, we see that there seems to be quite a lot of missing data around values
+of sleep that are medium to high. In particular, missing completely at random
+would probably not be a good assumption here.
+
+Another comparison for missing data might be to look at a scatter
+plot of two variables, and consider whether the marginal distributions
+are different.
+```{r}
+marginplot(sleep[,c("Gest","Dream")])
+```
+
+If the blue and red histograms are different, this would suggest that the missingness
+in one variable affect the distribution of another varialble.
+
+Now, let us try to understand how slow wave sleep (nondreaming) is affected by other variables.
+We can consider complete case analysis:
+```{r}
+lm(NonD ~ Exp + Danger + Span + BodyWgt, data=sleep) %>% summary()
+```
+We see that there seems to be some indication of significance for
+Danger and Span, but nothing very conclusive as we are removing
+a few observations from missingness.
+
+Instead, let us try to us multiple imputation to make use of
+all the data.
+```{r}
+sleep.mi = mice(sleep)
+```
+
+Now, we see that with the imputed data we are more certain that the lifespan
+and Danger level affect the length of non-dreaming sleep.
+```{r}
+with(sleep.mi, lm(NonD ~ Exp + Danger + Span + BodyWgt)) %>% pool() %>% summary()
+```
+
+On the other hand, we see in the case of the dream sleep that not considering
+the missing values has made us slightly overconfident.
+```{r}
+lm(Dream ~ Exp + Danger + Span + BodyWgt, data=sleep) %>% summary()
+```
+
+```{r}
+with(sleep.mi, lm(Dream ~ Exp + Danger + Span + BodyWgt)) %>% pool() %>% summary()
+```
+
+## Missing data and biases
+
+Missing data can cause strong biases especially when the true model
+is not known and not the when under consideration. For example,
+consider attempting to estimate the average value of x2.
+In here, x1 and x3 are very correlated with x2.
+```{r}
+n = 40
+data.sim = tibble(x = runif(n, -pi, pi)) %>%
+  transmute(x1 = rnorm(n, mean=x), x2 = rnorm(n, mean=x, sd = 0.5), x3 = rnorm(n, mean=x, sd = 0.5))
+```
+
+```{r}
+data.sim
+```
+
+```{r}
+lattice::splom(data.sim)
+```
+
+Let us introduce some missingness by deleting x2 when x3 tends to have a high value.
+```{r}
+data.sim.missing = data.sim %>%
+  mutate(p.del = exp(0.45 * x3 - 1.2) / (1 + exp(0.45 * x3 - 1.2))) %>%
+  mutate(x2.old = x2, x2 = ifelse(runif(40) > p.del, x2, NA)) %>%
+  select(-p.del)
+```
+
+We can see that there tends to be more missing values at the top of x3.
+```{r}
+matrixplot(data.sim.missing, sortby='x3')
+```
+
+Additionally, we can see by looking at a margin plot that the missing points
+have a slightly different marginal distribution of x2.
+```{r}
+marginplot(data.sim.missing[,c("x1","x2")])
+```
+
+```{r}
+ggplot(data=data.sim.missing %>%
+         select(x2, x2.old) %>%
+         rownames_to_column('id') %>%
+         gather(type, value, -id)) +
+  geom_boxplot(aes(y = value, x=type))
+```
+
+
+Let us fit the model using linear regression. The model only depends on x2,
+so it would be natural to attempt to fit a linear model in x2. However,
+we see that the model is misled as it can only see small values of x2, but not
+large ones, and believes that the main direction is negative.
+```{r}
+lm(x2 ~ 1, data=data.sim.missing) %>% summary()
+```
+
+Let us consider imputing the missing values and fitting the model again.
+```{r}
+data.sim.imp = data.sim.missing %>% select(-x2.old)
+sim.mi = mice(data.sim.imp)
+sim.mi
+```
+
+Now with the imputed values, we have that our estimator correctly sees that
+x2 is no longer signifcant.
+```{r}
+with(sim.mi, lm(x2 ~ 1)) %>% pool() %>% summary()
+```
+
+Note that in this case, we have strong bias because we did not account for the
+covariate responsible for the missingness, so we do not have the MAR condition
+(from our point of view, the missingness depends on the value).
+
+However, if we include x3 in the regression, we obtain
+```{r}
+lm(x2 ~ x3, data =data.sim.missing) %>% summary()
+```
+
+Which is very similar to the value obtained by using the full dataset
+```{r}
+lm(x2 ~ x3, data=data.sim) %>% summary()
+```
+
