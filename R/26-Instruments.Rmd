@@ -1,0 +1,94 @@
+---
+title: "Instrument variables"
+output: html_notebook
+---
+
+```{r}
+library(AER)
+library(tidyverse)
+```
+
+
+# Instrument variables
+
+Instrument variables allow us to mimic randomized experiments even when
+we do not observe all possible confounders. They rely on introducing
+some external effect that is random in some sense, and which cannot
+affect the outcome directly.
+
+## Education and Income
+
+```{r}
+data.edu = ivmodel::card.data
+data.edu
+```
+
+```{r}
+ggplot(data=data.edu, aes(y = lwage, x = educ)) +
+  geom_point() + geom_smooth()
+```
+
+```{r}
+lm(lwage ~ educ + exper + expersq + black + south, data=data.edu) %>% summary()
+```
+
+```{r}
+fit.iv = ivreg(lwage ~ educ + exper + expersq + black + south | exper + expersq + black + south + nearc4, data=data.edu)
+fit.iv %>% summary()
+```
+
+
+## Price-elasticity of demand
+
+Let us consider the problem of estimating the price-elasticity of demand of cigarettes.
+The price-elasticity of demand can be modelled as the derivative of the log-demand by
+the log-price. However, in this case we are not controlling the price directly, as
+it is not only affected by demand but also by supply (unobserved).
+
+```{r}
+data(CigarettesSW)
+data.cig = CigarettesSW %>%
+  mutate(lprice = log(price),
+         lquant = log(packs),
+         tdiff = taxs - tax)
+
+data.cig
+```
+
+
+```{r}
+lm(lquant ~ lprice, data=data.cig) %>% summary()
+```
+
+However, we may believe that taxes affect the consumption of cigarettes
+only through price, which allows us to use taxes as an instrumental
+variable to obtain a more causal estimate.
+
+```{r}
+ivreg(lquant ~ lprice | taxs, data=data.cig) %>% summary()
+```
+
+## Intent to treat
+
+```{r}
+data.sesame = foreign::read.dta('../data/sesame.dta')
+```
+
+In some cases, we may assign a treatment to an individual, but
+have no way of enforcing whether they follow the treatment.
+
+In this case, we may consider the assignment as the instrument variable,
+and whether the treatment was actually followed as the independent
+variable of intereste.
+
+We first consider a naive estimate by looking at the how we would use
+a normal regression to do so:
+```{r}
+lm(postlet ~ regular + prelet + factor(site) + setting, data=data.sesame) %>% summary()
+```
+
+Let us compare to a regression using instrumental variables:
+```{r}
+ivreg(postlet ~ regular + prelet + factor(site) + setting | encour + prelet + factor(site) + setting, data=data.sesame) %>% summary()
+```
+

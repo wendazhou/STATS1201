@@ -1,0 +1,251 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This workbook is partly inspired by a great tutorial by [Simon Ejdemyr](https://stanford.edu/~ejdemyr/). Many thanks.
+
+# Causal Inference
+
+```{r}
+library(tidyverse)
+library(MatchIt)
+library(forcats)
+library(mice)
+library(ranger)
+```
+
+Unfortunately the data for this workbook has special conditions attached
+to access it due to privacy issues. Follow the [instructions](https://github.com/sejdemyr/ecls)
+to obtain the data.
+
+We will investigate the difference in math score for children at catholic and public schools.
+The data is obtained from the Early Childhood Longitudinal Survey.
+
+
+```{r}
+ecls.raw = read_csv('../data/ecls.csv')
+
+ecls = ecls.raw %>%
+  unite(race.simple, starts_with('race_'), sep='') %>%
+  transmute(race.simple = fct_recode(factor(race.simple),
+                                  white = '1000',
+                                  black = '0100',
+                                  hispanic = '0010',
+                                  asian = '0001',
+                                  other = '0000'),
+         score = c5r2mtsc_std,
+         family_income = w3income,
+         school = fct_recode(factor(catholic), public='0', catholic='1'),
+         mother_age = p5hmage,
+         father_age = p5hdage,
+         mother_education = fct_recode(factor(w3momed_hsb), hs='1', college='0'),
+         father_education = fct_recode(factor(w3daded_hsb), hs='1', college='0'),
+         moved_home = p5numpla > 1)
+
+ecls
+```
+
+## Missing data
+
+Let us just complete the data using imputation. This is somewhat careless, as
+we have erased some information concerning family with only one parent,
+and we should probably model those separately.
+
+```{r}
+ecls.mi = mice(ecls, m = 1)
+```
+
+```{r}
+ecls.c = complete(ecls.mi, 1)
+ecls.c = ecls.c %>% mutate_if(~ 'contrasts' %in% names(attributes(.)), factor)
+ecls.c
+ecls.c$school.n = as.numeric(ecls.c$school == 'catholic')
+```
+
+## A naive analysis
+
+Suppose that we wish to understand how the type of school influences a child's score.
+The most naive idea is to simply compare the average score across schools. We can
+do so using a t-test.
+
+```{r}
+t.test(score ~ school, data=ecls.c)
+```
+
+We see that the difference is very significant, and the students in catholic school
+have a much higher average score than students in public schools.
+
+However, it is likely that students in catholic and public schools differ substantially.
+Let us check that by comparing their race, and education of parents, and family income.
+```{r}
+with(ecls.c, table(school, race.simple))
+with(ecls.c, chisq.test(school, race.simple))
+```
+
+```{r}
+t.test(family_income ~ school, data=ecls.c)
+```
+
+```{r}
+with(ecls.c, table(school, mother_education))
+with(ecls.c, table(school, father_education))
+```
+
+
+We could model this difference using a regression. However, as we add different
+variables, the value changes quite a bit, going from quite positive to negative.
+We would like to be able to do this comparison without modelling a specific effect
+for the cofounding variables.
+```{r}
+lm(score ~ school + race.simple, data=ecls.c) %>% summary()
+```
+
+Additionally, we are now constrained by our regression.
+We have postulated a linear model, but this may not be the truth
+
+## What if we had an experiment?
+
+If we had a randomized experiment where students are assigned at random
+to a catholic or public school, the naive analysis would be correct.
+We wish to create a procedure that tries to mimic the randomized trial
+(despite not having a randomized trial). However, in order to do so,
+we need to compare apples to apples.
+
+## Comparing apples to apples: propensity score
+
+The first step in comparing similar outcomes is to obtain the propensity
+score -- that is, the probability of treatment (in this case, of being
+sent to a catholic school).
+
+Let us simply use a logistic regression to do so.
+```{r}
+ecls.prop = glm(school ~ race.simple + mother_age + mother_education + father_education + family_income + moved_home,
+                family=binomial(), data=ecls.c)
+
+ecls.prop %>% summary()
+```
+
+Let us check if our predictions are reasonable.
+```{r}
+ecls.ps = tibble(score = predict(ecls.prop, type='response'), school=ecls.c$school)
+
+ggplot(data=ecls.ps, aes(x = score, y = as.numeric(school == 'catholic'))) +
+  geom_point() +
+  geom_smooth(formula = y ~ x)
+```
+```{r}
+ggplot(data=ecls.ps) +
+  geom_histogram(aes(x = score), binwidth=0.05) +
+  facet_wrap(~school)
+```
+
+## Propensity score matching
+
+To obtain a causal effect, the idea is to compare only observations that are similar to
+each other in terms of probability of being treated (attending a catholic school).
+The matchit function automatically computes a propensity score for us (by logistic
+regression by default) and matches up observations.
+
+```{r}
+ecls.match = matchit(school.n ~ race.simple + mother_age + mother_education + father_education + family_income + moved_home,
+        data=ecls.c, method='nearest', distance = ecls.ps$score)
+```
+
+```{r}
+ecls.match %>% summary()
+```
+
+```{r}
+plot(ecls.match, type='jitter')
+```
+
+We can now make an apple to apple comparison of the scores of the students across
+the different schools.
+
+```{r}
+ecls.m = match.data(ecls.match)
+ecls.m
+```
+
+```{r}
+t.test(score ~ school, data=ecls.m)
+```
+
+## Average treatment effect
+
+However, in case we do not have a perfect match, we may still be interested in adjusting
+for the known covariates. We first fit a model to explain the score from the identified
+control group (i.e. students who were matched and who go to public school).
+```{r}
+fit.control = lm(score ~ race.simple + mother_age + mother_education + father_education + family_income,
+   data=match.data(ecls.match, 'control'))
+```
+
+We then use this to predict the value score for the students who went to catholic school,
+and observe the difference.
+
+```{r}
+tibble(control = predict(fit.control, newdata=match.data(ecls.match, 'treat')),
+       treated = match.data(ecls.match, 'treat')$score) %>%
+  summarise(mean(treated - control))
+```
+
+This the average treatment effect on the treated. We can also compute an overall average treatment effect,
+by fitting a model to the treated units and fitting the counterfactual control. If the treatment effect
+is similar for everyone, this value should be similar. If the value is very different, this may be
+an indication that something strange is happening.
+
+```{r}
+fit.treated = lm(score ~ race.simple + mother_age + mother_education + father_education + family_income,
+                 data=match.data(ecls.match, 'treat'))
+```
+
+```{r}
+tibble(treated = predict(fit.treated, newdata=match.data(ecls.match, 'control')),
+       control = match.data(ecls.match, 'control')$score) %>%
+  summarise(mean(treated - control))
+```
+
+## Better matching using machine learning
+
+In the previous section, we predicted the propensity scores using logistic regression.
+While this is a perfectly good way of doing so, we saw that using machine learning methods
+we can obtain better predictivity. Let us use a random forest instead to predict the
+propensity scores.
+
+```{r}
+ecls.prop.forest = ranger(school ~ race.simple + mother_age + mother_education + family_income,
+       data=ecls.c, probability = T)
+```
+
+```{r}
+ecls.ps.forest = tibble(score = predict(ecls.prop.forest, data=ecls.c)$predictions[,'catholic'],
+                        school = ecls.c$school)
+```
+
+```{r}
+ggplot(data=ecls.ps.forest, aes(x = score, y = as.numeric(school == 'catholic'))) +
+  geom_point() +
+  geom_smooth(formula = y ~ x) +
+  ylim(0, 1)
+```
+
+```{r}
+ggplot(data=ecls.ps.forest) +
+  geom_histogram(aes(x = score), binwidth=0.05) +
+  facet_wrap(~school)
+```
+
+```{r}
+ecls.match.forest = matchit(school.n ~ race.simple + mother_age + mother_education + father_education + family_income + moved_home,
+        data=ecls.c, method='nearest', distance = ecls.ps.forest$score)
+```
+```{r}
+ecls.match.forest %>% summary()
+```
+
+```{r}
+with(match.data(ecls.match.forest), t.test(score ~ school))
+```
+

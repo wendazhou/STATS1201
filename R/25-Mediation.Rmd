@@ -1,0 +1,98 @@
+---
+title: "Mediation effects"
+output: html_notebook
+---
+
+```{r}
+library(mediation)
+library(tidyverse)
+```
+
+
+# Mediation effects
+
+Even in the context of experiments, we are often interested how the dependent
+variable of interest depends on the independent variable directly and indirectly.
+
+We consider below a framing example, an experiment conducted by Brader, Valentino and
+Suhay (available [here](http://onlinelibrary.wiley.com/doi/10.1111/j.1540-5907.2008.00353.x/abstract))
+where participants were randomly presented
+different media stories about immigration, and were asked if they agreed to
+send a anti-immggration letter to their member of congress about immigration.
+
+```{r}
+data(framing)
+framing
+```
+
+The researcher theorised that the willingness to send the letter would be mediated by
+the subject's emotional feeling during the experiment.
+
+## Modelling mediation
+
+In order to perform a mediation analysis, we first model the behaviour of the mediator as
+a function of the treatment and pre-treatment variables (i.e. characteristics of the
+individual).
+
+```{r}
+med.fit = lm(emo ~ treat + age + educ + gender + income, data=framing)
+med.fit %>% summary()
+```
+
+Now modelling the outcome, we see that the emotional level is very significant
+in predicting whether the subject will be willing to send a letter to their
+member of congress.
+
+```{r}
+out.fit = glm(cong_mesg ~ emo + treat + age + gender + educ + income, data=framing, family=binomial('probit'))
+out.fit %>% summary()
+```
+
+## Direct and mediation effects
+
+In a mediation analysis, we wish to separate the ADE (average direct effect), the effect only
+due to the treatment (controlled by the research), and the ACME (average causal mediation effect),
+the "causal" effect of the mediation on the outcome.
+
+```{r}
+med.out = mediate(med.fit, out.fit, treat='treat', mediator = 'emo')
+```
+
+```{r}
+summary(med.out)
+```
+
+In this case, we see that the emotional reaction mediates about 80\% of
+the observed effect, and is the only significant effect. That is, we
+can explain most of the observed effect in the outcome from the
+emotional impact, and we are fairly confident this is causal
+despite not randomising the emotional impact directly.
+
+## Moderation in mediation effect
+
+We may believe in addition that the mediation effect is heterogeneous,
+that is, it may vary depending on the subject. In this case, it may be
+of interest to model the interaction explicitly.
+
+```{r}
+mod.med = lm(emo ~ treat * age + educ + gender + income, data=framing)
+mod.med %>% summary()
+```
+
+```{r}
+mod.out = glm(cong_mesg ~ emo + treat * age + emo * age + educ + gender + income,
+              data=framing, family=binomial('probit'))
+mod.out %>% summary()
+```
+
+We may then compute the mediation effect. Let us for example compare
+the mediation effect at 20 and 60 years old.
+```{r}
+med.age20 = mediate(mod.med, mod.out, treat='treat', mediator='emo', covariates=list(age=20))
+med.age60 = mediate(mod.med, mod.out, treat='treat', mediator='emo', covariates=list(age=60))
+```
+
+```{r}
+med.age20 %>% summary()
+med.age60 %>% summary()
+```
