@@ -1,0 +1,90 @@
+---
+title: "Communities and networks"
+output: html_notebook
+---
+
+```{r}
+library(igraph)
+library(tidyverse)
+```
+
+
+# Communities and networks
+
+To understand communities and networks, we will consider the basic mathematical
+object of a graph. A graph is a list of vertices (often representing individuals,
+or entities), and a list of edges between vertices (representing the relationship
+between those entities).
+
+## Example of graphs
+
+```{r}
+plot(sample_gnp(40, 0.2), vertex.label=NA)
+```
+
+
+```{r}
+plot(sample_pa(40, power=2, directed=F), vertex.label=NA)
+```
+
+```{r}
+plot(sample_sbm(40, matrix(c(0.9, 0.1, 0.1, 0.9), nrow=2), c(20, 20)), vertex.label=NA)
+```
+
+## Directed vs. undirected graphs
+
+Depending on the relationship being modelled, we may consider to model either directed
+edges or undirected edges. Undirected edges are more appropriate for reciprocal
+relationships, whereas directed edges can be more appropriate for non-reciprocal
+relationships.
+
+```{r}
+plot(sample_pa(30, power=1, directed=T), vertex.label=NA)
+```
+
+## Graph centrality
+
+One measure of particular interest is measuring the importance of a vertex in the network.
+This is known as centrality.
+
+```{r}
+graph.sbm = sample_sbm(25, matrix(c(0.9, 0.5, 0.5, 0.1, 0.2, 0.1, 0.1, 0.1, 0.2), nrow=3), block.sizes=c(5, 10, 10),
+                      directed = T)
+plot(graph.sbm, vertex.label=NA)
+```
+
+```{r}
+graph.centr = alpha_centrality(graph.sbm)
+g = scale_color_gradient()
+centr.col = g$palette((graph.centr - min(graph.centr)) / (max(graph.centr) - min(graph.centr)))
+plot(graph.pa, vertex.color=centr.col, vertex.label=NA)
+```
+
+
+## Community detection
+
+We consider here a network of French political blogs (in 2006), with their affiliation classified
+by a French NGO project. We have plotted the network, coloured by political affilation.
+
+```{r}
+data(fblog, package = 'sand')
+fblog = igraph::upgrade_graph(fblog)
+```
+
+```{r}
+plot(fblog, vertex.label=NA, vertex.color = factor(igraph::vertex_attr(fblog, 'PolParty')))
+```
+
+Suppose that we did not have the true classification, and wished to understand how
+the network below is clustered:
+```{r}
+plot(fblog, vertex.label=NA)
+```
+
+We wish to form clusters when nodes are more tightly connected.
+This problem is also called community detection. In this case,
+we use an algorithm based on short random walks.
+
+```{r}
+plot(igraph::cluster_walktrap(fblog), fblog, vertex.label=NA)
+```

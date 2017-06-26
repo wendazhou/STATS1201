@@ -1,0 +1,204 @@
+---
+title: "Unsupervised methods"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(mixtools)
+library(broom)
+library(kernlab)
+```
+
+
+# Unsupervised methods and graphs
+
+Unsupervised methods denotes methods that only analyse the covariates,
+and do not consider a notion of response. They are intended to highlight
+structure that may exist in the data.
+
+## Principal components analysis
+
+Principal components analysis is a dimensionality reduction technique
+that attempts to capture the main directions of variations of the data.
+Using such a technique, we may summarise a large number of covariates
+using few coefficients.
+
+Let us consider an example of the iris data. In this case, we have
+four variables.
+
+```{r}
+data(iris)
+iris
+```
+
+However, looking at the pca analysis, we see that most of the variation in the data
+(about 92\%) can be explained in a single direction, and that the first two
+principal components capture a total of 98\% of the variation.
+
+```{r}
+iris.pca = prcomp(iris[,1:4])
+summary(iris.pca)
+```
+
+```{r}
+iris.scores = predict(iris.pca) %>%
+  as.data.frame() %>%
+  mutate(Species = iris$Species)
+
+ggplot(data=iris.scores) +
+  geom_point(aes(x = PC1, y = PC2, colour=Species))
+```
+
+
+What do these component represent? They represent linear combinations of our variables.
+
+```{r}
+iris.pca
+```
+
+PCA is often used for dimensionality reduction as it can often significantly
+reduce the dimensionality of the problem. However, the obtained coefficients
+are now difficult to interpret, as they represent some abstract combination
+of coefficients.
+
+
+## Mixture models
+
+Mixture models attempt to model distinct phenomena in a single dataset.
+They can be seen as attempting to perform 'blind' regression, where
+the covariate is not observed.
+
+```{r}
+data(faithful)
+faithful
+```
+
+For example, consider this dataset, containing the eruption time
+from the old faithful geyser. It is bimodal, and seems to display
+two distinct patterns.
+
+```{r}
+ggplot(data=faithful) +
+  geom_histogram(aes(x = waiting), binwidth=5)
+```
+
+We can model this bimodel pattern using a mixture model.
+```{r}
+faithful.mix = normalmixEM(faithful$waiting, k = 2)
+```
+
+```{r}
+plot(faithful.mix, which=2)
+```
+
+```{r}
+summary(faithful.mix)
+```
+
+In fact, if we look at both the eruption and waiting time of the data,
+we see that there are two somewhat distinct patterns.
+```{r}
+ggplot(data=faithful) +
+  geom_point(aes(x = waiting, y = eruptions))
+```
+
+Let us fit a mixture model to these patterns.
+
+```{r}
+faithful.multimix = mvnormalmixEM(faithful, k = 2)
+```
+
+```{r}
+plot(faithful.multimix, which=2)
+```
+
+```{r}
+summary(faithful.multimix)
+```
+
+
+## K-means clustering
+
+
+K-means clustering attempts to find k points which minimize the within-group
+sum of squares. We need to specify the number of clusters $k$.
+
+```{r}
+iris.kmeans = kmeans(iris[,1:4], 3)
+iris.kmeans
+```
+
+```{r}
+ggplot(data=iris %>% mutate(cluster = factor(iris.kmeans$cluster))) +
+  geom_point(aes(x = Sepal.Length, y = Sepal.Width, colour=cluster)) +
+  geom_point(aes(x = Sepal.Length, y = Sepal.Width, colour=cluster),
+             data=iris.kmeans$centers %>%
+               as.data.frame() %>%
+               rownames_to_column('cluster'),
+             size=5)
+```
+
+The choice of the number of clusters $k$ is important for this algorithm,
+For example, suppose we chose $k = 4$, we would then obtain:
+
+```{r}
+iris.kmeans4 = kmeans(iris[,1:4], 4)
+ggplot(data=iris %>% mutate(cluster = factor(iris.kmeans4$cluster))) +
+  geom_point(aes(x = Sepal.Length, y = Sepal.Width, colour=cluster)) +
+  geom_point(aes(x = Sepal.Length, y = Sepal.Width, colour=cluster),
+             data=iris.kmeans4$centers %>%
+               as.data.frame() %>%
+               rownames_to_column('cluster'),
+             size=5)
+```
+
+Unlike in the case of prediction, we do not have access to any observation
+indicating the underlying cluster for us. One possibility is to consider
+how much variation is explained.
+
+```{r}
+kmeans.ss = tibble(k = 1:9) %>%
+  group_by(k) %>%
+  do(kmeans(iris[,1:4], .$k) %>% glance())
+
+kmeans.ss
+```
+
+```{r}
+ggplot(data=kmeans.ss) +
+  geom_line(aes(x = k, y = tot.withinss)) +
+  scale_x_continuous(breaks=1:9)
+```
+
+## Spectral clustering
+
+k-means is usually adequate when close points are expected to be similar. However,
+this is not always the case, consider for example the (artificial) data set below.
+
+```{r}
+data(spirals)
+
+spirals = as.data.frame(spirals)
+
+ggplot(data=spirals) + 
+  geom_point(aes(x = V1, y = V2))
+```
+
+Spectral clustering achieves this by first choosing an adequate definition of
+what it means for points to be close. We may then use k-means in that
+sense.
+
+```{r}
+cluster.spec = specc(~ V1 + V2, data=spirals, centers=2)
+cluster.spec
+```
+
+```{r}
+ggplot(data=spirals %>% mutate(cluster = factor(cluster.spec))) +
+  geom_point(aes(x = V1, y = V2, colour=cluster))
+```
+
+
+
+
